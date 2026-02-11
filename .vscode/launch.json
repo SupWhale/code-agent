@@ -1,0 +1,49 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python: FastAPI",
+      "type": "python",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": [
+        "src.main:app",
+        "--reload",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000"
+      ],
+      "jinja": true,
+      "justMyCode": false,
+      "env": {
+        "OLLAMA_HOST": "http://localhost:11434",
+        "MODEL_NAME": "qwen2.5-coder:14b",
+        "WORKSPACE_PATH": "${workspaceFolder}/deployment/workspace",
+        "LOG_LEVEL": "DEBUG"
+      },
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Python: 현재 파일",
+      "type": "python",
+      "request": "launch",
+      "program": "${file}",
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "Python: 테스트",
+      "type": "python",
+      "request": "launch",
+      "module": "pytest",
+      "args": [
+        "tests/",
+        "-v",
+        "-s"
+      ],
+      "console": "integratedTerminal",
+      "justMyCode": false
+    }
+  ]
+}

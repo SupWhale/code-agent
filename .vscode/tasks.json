@@ -1,0 +1,74 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "개발 서버 시작",
+      "type": "shell",
+      "command": "bash",
+      "args": ["scripts/dev.sh"],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      }
+    },
+    {
+      "label": "테스트 실행",
+      "type": "shell",
+      "command": "make",
+      "args": ["test"],
+      "problemMatcher": [],
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "코드 포맷팅",
+      "type": "shell",
+      "command": "make",
+      "args": ["format"],
+      "problemMatcher": []
+    },
+    {
+      "label": "린팅",
+      "type": "shell",
+      "command": "make",
+      "args": ["lint"],
+      "problemMatcher": []
+    },
+    {
+      "label": "서버에 배포",
+      "type": "shell",
+      "command": "make",
+      "args": ["deploy-server"],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      }
+    },
+    {
+      "label": "로컬 Docker 배포",
+      "type": "shell",
+      "command": "make",
+      "args": ["deploy-local"],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      }
+    },
+    {
+      "label": "Docker 개발 환경",
+      "type": "shell",
+      "command": "make",
+      "args": ["dev-docker"],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      }
+    }
+  ]
+}
