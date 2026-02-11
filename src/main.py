@@ -19,6 +19,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
 
+# Agent imports
+from .agent.executor import ToolExecutor
+from .agent.orchestrator import AgentOrchestrator
+from .agent.task_manager import TaskManager
+from .agent.security.validator import SecurityValidator
+from .agent.llm.ollama_client import OllamaAgentClient
+from .routes.agent import init_agent_router
+
 # Logging configuration
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
@@ -29,7 +37,7 @@ logger = logging.getLogger(__name__)
 # Environment variables
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 MODEL_NAME = os.getenv("MODEL_NAME", "qwen2.5-coder:14b")
-WORKSPACE_PATH = Path(os.getenv("WORKSPACE_PATH", "/workspace"))
+WORKSPACE_PATH = Path(os.getenv("WORKSPACE_PATH", ".")).resolve()  # 현재 디렉토리를 기본값으로
 MAX_FILE_SIZE = int(os.getenv("MAX_FILE_SIZE", "104857600"))  # 100MB in bytes
 
 # Prometheus metrics
@@ -54,6 +62,56 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Agent system (initialized on startup)
+task_manager: Optional[TaskManager] = None
+
+
+@app.on_event("startup")
+async def startup_event():
+    """앱 시작 시 agent 시스템 초기화"""
+    global task_manager
+
+    try:
+        logger.info("Initializing agent system...")
+
+        # 1. LLM 클라이언트 초기화
+        llm_client = OllamaAgentClient(
+            host=OLLAMA_HOST,
+            model=MODEL_NAME,
+            temperature=0.1
+        )
+
+        # 2. 보안 검증기 초기화
+        security = SecurityValidator(
+            workspace_path=str(WORKSPACE_PATH),
+            strict_mode=True
+        )
+
+        # 3. 도구 실행기 초기화
+        executor = ToolExecutor(workspace_path=str(WORKSPACE_PATH))
+
+        # 4. 오케스트레이터 초기화
+        orchestrator = AgentOrchestrator(
+            llm_client=llm_client,
+            executor=executor,
+            security=security,
+            max_iterations=20
+        )
+
+        # 5. 작업 관리자 초기화
+        task_manager = TaskManager(orchestrator=orchestrator)
+
+        # 6. Agent API 라우터 등록
+        agent_router = init_agent_router(task_manager)
+        app.include_router(agent_router)
+
+        logger.info("Agent system initialized successfully")
+
+    except Exception as e:
+        logger.error(f"Failed to initialize agent system: {e}")
+        # Agent 시스템 초기화 실패해도 앱은 계속 실행
+        logger.warning("App will continue without agent features")
 
 # Custom JSON Response with UTF-8 support
 class UnicodeJSONResponse(JSONResponse):
