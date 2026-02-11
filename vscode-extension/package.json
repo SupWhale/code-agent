@@ -1,0 +1,148 @@
+{
+  "name": "ai-coding-agent",
+  "displayName": "AI Coding Agent",
+  "description": "AI-powered coding assistant using Ollama and Qwen2.5-Coder",
+  "version": "0.1.0",
+  "publisher": "coding-agent",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Machine Learning",
+    "Other"
+  ],
+  "keywords": [
+    "ai",
+    "coding",
+    "assistant",
+    "ollama",
+    "code-generation"
+  ],
+  "activationEvents": [
+    "onCommand:aiAgent.connect",
+    "onCommand:aiAgent.ask",
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "aiAgent.connect",
+        "title": "AI Agent: 서버 연결",
+        "icon": "$(plug)"
+      },
+      {
+        "command": "aiAgent.disconnect",
+        "title": "AI Agent: 연결 해제",
+        "icon": "$(debug-disconnect)"
+      },
+      {
+        "command": "aiAgent.ask",
+        "title": "AI Agent: 코드 수정 요청",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "aiAgent.askSelection",
+        "title": "AI Agent: 선택 영역 수정",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "aiAgent.uploadFiles",
+        "title": "AI Agent: 현재 파일 업로드",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "aiAgent.showPanel",
+        "title": "AI Agent: 패널 표시",
+        "icon": "$(layout-panel)"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "aiAgent.askSelection",
+          "when": "editorHasSelection",
+          "group": "aiAgent@1"
+        },
+        {
+          "command": "aiAgent.ask",
+          "group": "aiAgent@2"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "aiAgent.askSelection",
+          "when": "editorHasSelection"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "AI Coding Agent",
+      "properties": {
+        "aiAgent.serverUrl": {
+          "type": "string",
+          "default": "ws://localhost:8000",
+          "description": "AI Agent 서버 URL (WebSocket)"
+        },
+        "aiAgent.autoConnect": {
+          "type": "boolean",
+          "default": false,
+          "description": "VS Code 시작 시 자동 연결"
+        },
+        "aiAgent.autoUpload": {
+          "type": "boolean",
+          "default": true,
+          "description": "연결 시 현재 워크스페이스 파일 자동 업로드"
+        },
+        "aiAgent.showDiff": {
+          "type": "boolean",
+          "default": true,
+          "description": "변경사항을 Diff 뷰어로 표시"
+        },
+        "aiAgent.maxFileSize": {
+          "type": "number",
+          "default": 1048576,
+          "description": "업로드할 파일의 최대 크기 (bytes)"
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "aiAgent",
+          "title": "AI Coding Agent",
+          "icon": "resources/icons/robot.svg"
+        }
+      ]
+    },
+    "views": {
+      "aiAgent": [
+        {
+          "id": "aiAgentPanel",
+          "name": "Agent Status"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile",
+    "test": "node ./out/test/runTest.js",
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "devDependencies": {
+    "@types/node": "^18.x",
+    "@types/vscode": "^1.80.0",
+    "@types/ws": "^8.5.10",
+    "@vscode/test-electron": "^2.3.0",
+    "typescript": "^5.0.0",
+    "@vscode/vsce": "^2.19.0"
+  },
+  "dependencies": {
+    "ws": "^8.16.0"
+  }
+}

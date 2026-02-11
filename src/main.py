@@ -23,9 +23,11 @@ from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTEN
 from .agent.executor import ToolExecutor
 from .agent.orchestrator import AgentOrchestrator
 from .agent.task_manager import TaskManager
+from .agent.session_manager import SessionManager
 from .agent.security.validator import SecurityValidator
 from .agent.llm.ollama_client import OllamaAgentClient
 from .routes.agent import init_agent_router
+from .routes.vscode import init_vscode_router
 
 # Logging configuration
 logging.basicConfig(
@@ -102,9 +104,17 @@ async def startup_event():
         # 5. 작업 관리자 초기화
         task_manager = TaskManager(orchestrator=orchestrator)
 
-        # 6. Agent API 라우터 등록
+        # 6. 세션 관리자 초기화 (VS Code Extension용)
+        sessions_path = WORKSPACE_PATH / ".sessions"
+        session_manager = SessionManager(base_workspace_path=str(sessions_path))
+
+        # 7. Agent API 라우터 등록
         agent_router = init_agent_router(task_manager)
         app.include_router(agent_router)
+
+        # 8. VS Code API 라우터 등록
+        vscode_router = init_vscode_router(session_manager, task_manager, orchestrator)
+        app.include_router(vscode_router)
 
         logger.info("Agent system initialized successfully")
 
