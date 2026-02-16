@@ -62,6 +62,9 @@
         messageDiv.appendChild(content);
         messagesDiv.appendChild(messageDiv);
 
+        // Syntax highlighting 적용
+        highlightCode();
+
         // 스크롤을 아래로
         scrollToBottom();
 
@@ -101,6 +104,7 @@
     // 코드 블록 생성
     function createCodeBlock(language, code, index) {
         const escapedCode = escapeHtml(code);
+        const prismLang = getPrismLanguage(language);
         return `
             <div class="code-block" data-index="${index}">
                 <div class="code-header">
@@ -115,10 +119,30 @@
                     </div>
                 </div>
                 <div class="code-content">
-                    <pre><code>${escapedCode}</code></pre>
+                    <pre><code class="language-${prismLang}">${escapedCode}</code></pre>
                 </div>
             </div>
         `;
+    }
+
+    // Prism 언어 매핑
+    function getPrismLanguage(lang) {
+        const langMap = {
+            'py': 'python',
+            'js': 'javascript',
+            'ts': 'typescript',
+            'sh': 'bash',
+            'yml': 'yaml',
+            'dockerfile': 'docker'
+        };
+        return langMap[lang] || lang;
+    }
+
+    // Prism 하이라이팅 적용
+    function highlightCode() {
+        if (typeof Prism !== 'undefined') {
+            Prism.highlightAll();
+        }
     }
 
     // HTML 이스케이프
@@ -215,6 +239,8 @@
         vscode.setState({ messages });
     }
 
+    let currentStreamingMessage = null;
+
     // Extension으로부터 메시지 수신
     window.addEventListener('message', event => {
         const message = event.data;
@@ -222,10 +248,20 @@
         switch (message.type) {
             case 'userMessage':
                 addMessageToDOM(message.message);
+                currentStreamingMessage = null;
                 break;
 
             case 'aiMessage':
+                currentStreamingMessage = null;
                 addMessageToDOM(message.message);
+                break;
+
+            case 'aiThinking':
+                // 스트리밍 응답 표시
+                if (!currentStreamingMessage) {
+                    currentStreamingMessage = createStreamingMessage();
+                }
+                appendToStreamingMessage(currentStreamingMessage, message.content);
                 break;
 
             case 'thinking':
@@ -235,6 +271,7 @@
             case 'error':
                 showError(message.message);
                 showThinking(false);
+                currentStreamingMessage = null;
                 break;
 
             case 'contextInfo':
@@ -243,6 +280,35 @@
                 break;
         }
     });
+
+    // 스트리밍 메시지 생성
+    function createStreamingMessage() {
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'message assistant streaming';
+        messageDiv.dataset.id = 'streaming-' + Date.now();
+
+        const header = document.createElement('div');
+        header.className = 'message-header';
+        header.innerHTML = '<span class="icon">🤖</span><span>AI Agent</span>';
+
+        const content = document.createElement('div');
+        content.className = 'message-content';
+        content.innerHTML = '';
+
+        messageDiv.appendChild(header);
+        messageDiv.appendChild(content);
+        messagesDiv.appendChild(messageDiv);
+        scrollToBottom();
+
+        return messageDiv;
+    }
+
+    // 스트리밍 메시지에 내용 추가
+    function appendToStreamingMessage(messageDiv, text) {
+        const content = messageDiv.querySelector('.message-content');
+        content.textContent += text;
+        scrollToBottom();
+    }
 
     // 이벤트 리스너
     sendBtn.addEventListener('click', sendMessage);

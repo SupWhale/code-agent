@@ -42,6 +42,90 @@ export class ChatPanel {
             null,
             this._disposables
         );
+
+        // Setup connection event handlers
+        this._setupConnectionHandlers();
+    }
+
+    private _setupConnectionHandlers() {
+        if (!this._connection) {
+            return;
+        }
+
+        // Listen for AI responses
+        this._connection.on('file_changed', (message) => {
+            const aiMessage: Message = {
+                id: this._generateId(),
+                role: 'assistant',
+                content: `파일이 변경되었습니다: ${message.path}\n\n\`\`\`${message.language || 'text'}\n${message.new_content}\n\`\`\``,
+                timestamp: new Date(),
+                codeBlocks: [{
+                    language: message.language || 'text',
+                    code: message.new_content
+                }]
+            };
+            this._messages.push(aiMessage);
+
+            this._panel.webview.postMessage({
+                type: 'thinking',
+                show: false
+            });
+
+            this._panel.webview.postMessage({
+                type: 'aiMessage',
+                message: aiMessage
+            });
+        });
+
+        // Listen for task completion
+        this._connection.on('task_completed', (message) => {
+            const aiMessage: Message = {
+                id: this._generateId(),
+                role: 'assistant',
+                content: `✅ 작업 완료!\n\n${message.result || '성공적으로 완료되었습니다.'}`,
+                timestamp: new Date()
+            };
+            this._messages.push(aiMessage);
+
+            this._panel.webview.postMessage({
+                type: 'thinking',
+                show: false
+            });
+
+            this._panel.webview.postMessage({
+                type: 'aiMessage',
+                message: aiMessage
+            });
+        });
+
+        // Listen for errors
+        this._connection.on('error', (message) => {
+            this._panel.webview.postMessage({
+                type: 'thinking',
+                show: false
+            });
+
+            this._panel.webview.postMessage({
+                type: 'error',
+                message: message.error || '오류가 발생했습니다'
+            });
+        });
+
+        // Listen for thinking/progress
+        this._connection.on('agent_thinking', (message) => {
+            // Show streaming response
+            if (message.content) {
+                this._panel.webview.postMessage({
+                    type: 'aiThinking',
+                    content: message.content
+                });
+            }
+        });
+    }
+
+    public setConnection(connection: AgentConnection) {
+        this._connection = connection;
+        this._setupConnectionHandlers();
     }
 
     public static createOrShow(extensionUri: vscode.Uri, connection?: AgentConnection) {
@@ -173,15 +257,15 @@ export class ChatPanel {
     }
 
     private async _getAIResponse(prompt: string): Promise<string> {
-        // TODO: Integrate with actual WebSocket connection
-        // For now, return a mock response
         if (this._connection) {
-            // Use actual connection when available
-            // return await this._connection.requestAgent(prompt);
+            // Use actual WebSocket connection
+            await this._connection.requestAgent(prompt);
+            // Response will come through event handlers
+            return 'Processing...';
         }
 
-        // Mock response for testing
-        return `AI 응답: "${prompt}"에 대한 답변입니다.\n\n예시 코드:\n\`\`\`python\ndef example():\n    """Example function"""\n    return "Hello, World!"\n\`\`\``;
+        // Mock response when not connected
+        return `⚠️ 서버에 연결되지 않았습니다.\n\n먼저 "AI Agent: 서버 연결" 명령을 실행하세요.\n\n---\n\nMock 응답: "${prompt}"\n\n\`\`\`python\ndef example():\n    """Example function"""\n    return "Hello, World!"\n\`\`\``;
     }
 
     private async _getCurrentContext(): Promise<string> {
@@ -266,8 +350,10 @@ export class ChatPanel {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline' https://cdnjs.cloudflare.com; script-src 'nonce-${nonce}' https://cdnjs.cloudflare.com; font-src ${webview.cspSource} https://cdnjs.cloudflare.com;">
     <link href="${styleUri}" rel="stylesheet">
+    <!-- Prism.js for syntax highlighting -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet">
     <title>AI Agent Chat</title>
 </head>
 <body>
@@ -308,6 +394,19 @@ export class ChatPanel {
         </div>
     </div>
 
+    <!-- Prism.js Core -->
+    <script nonce="${nonce}" src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <!-- Prism.js Language Support -->
+    <script nonce="${nonce}" src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
+    <script nonce="${nonce}" src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-javascript.min.js"></script>
+    <script nonce="${nonce}" src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+    <script nonce="${nonce}" src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-java.min.js"></script>
+    <script nonce="${nonce}" src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-cpp.min.js"></script>
+    <script nonce="${nonce}" src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-csharp.min.js"></script>
+    <script nonce="${nonce}" src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+    <script nonce="${nonce}" src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-yaml.min.js"></script>
+    <script nonce="${nonce}" src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+    <!-- Chat Script -->
     <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;
