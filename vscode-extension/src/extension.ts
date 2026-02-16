@@ -7,6 +7,7 @@
 import * as vscode from 'vscode';
 import { AgentConnection } from './connection';
 import { FileSync } from './fileSync';
+import { ChatPanel } from './chat/ChatPanel';
 import * as path from 'path';
 
 let connection: AgentConnection | null = null;
@@ -48,6 +49,12 @@ export function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(
         vscode.commands.registerCommand('aiAgent.uploadFiles', uploadFilesCommand)
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('aiAgent.showChat', () => {
+            ChatPanel.createOrShow(context.extensionUri, connection || undefined);
+        })
     );
 
     // 자동 연결 확인

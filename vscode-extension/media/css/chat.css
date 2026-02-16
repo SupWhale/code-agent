@@ -1,0 +1,388 @@
+/* VS Code 테마 변수 사용 */
+:root {
+    --container-padding: 16px;
+    --border-radius: 8px;
+    --message-spacing: 12px;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: var(--vscode-font-family);
+    font-size: var(--vscode-font-size);
+    color: var(--vscode-foreground);
+    background-color: var(--vscode-editor-background);
+    overflow: hidden;
+}
+
+#chat-container {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+/* Header */
+#chat-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px var(--container-padding);
+    border-bottom: 1px solid var(--vscode-panel-border);
+    background-color: var(--vscode-editor-background);
+}
+
+#chat-header h2 {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0;
+}
+
+#header-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.icon-btn {
+    background: none;
+    border: none;
+    color: var(--vscode-foreground);
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.icon-btn:hover {
+    background-color: var(--vscode-toolbar-hoverBackground);
+}
+
+.icon-btn:active {
+    background-color: var(--vscode-toolbar-activeBackground);
+}
+
+/* Messages Container */
+#messages-container {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--container-padding);
+}
+
+#messages {
+    display: flex;
+    flex-direction: column;
+    gap: var(--message-spacing);
+}
+
+/* Message */
+.message {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+    border-radius: var(--border-radius);
+    animation: slideIn 0.2s ease-out;
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.message.user {
+    background-color: var(--vscode-input-background);
+    border: 1px solid var(--vscode-input-border);
+    margin-left: 15%;
+    align-self: flex-end;
+}
+
+.message.assistant {
+    background-color: var(--vscode-editor-inactiveSelectionBackground);
+    border: 1px solid var(--vscode-panel-border);
+    margin-right: 15%;
+    align-self: flex-start;
+}
+
+.message-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--vscode-descriptionForeground);
+}
+
+.message-header .icon {
+    font-size: 16px;
+}
+
+.message-content {
+    line-height: 1.6;
+    word-wrap: break-word;
+}
+
+.message-content p {
+    margin: 0 0 8px 0;
+}
+
+.message-content p:last-child {
+    margin-bottom: 0;
+}
+
+/* Code Blocks */
+.code-block {
+    margin: 12px 0;
+    border-radius: 6px;
+    overflow: hidden;
+    background-color: var(--vscode-textCodeBlock-background);
+    border: 1px solid var(--vscode-panel-border);
+}
+
+.code-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    background-color: var(--vscode-editor-background);
+    border-bottom: 1px solid var(--vscode-panel-border);
+    font-size: 12px;
+}
+
+.code-language {
+    font-weight: 600;
+    color: var(--vscode-textLink-foreground);
+}
+
+.code-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.code-btn {
+    background: none;
+    border: 1px solid var(--vscode-button-border, transparent);
+    color: var(--vscode-button-foreground);
+    background-color: var(--vscode-button-secondaryBackground);
+    padding: 4px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.1s;
+}
+
+.code-btn:hover {
+    background-color: var(--vscode-button-secondaryHoverBackground);
+}
+
+.code-btn:active {
+    transform: scale(0.95);
+}
+
+.code-content {
+    padding: 12px;
+    overflow-x: auto;
+}
+
+.code-content pre {
+    margin: 0;
+    font-family: var(--vscode-editor-font-family);
+    font-size: var(--vscode-editor-font-size);
+    line-height: 1.5;
+}
+
+.code-content code {
+    color: var(--vscode-editor-foreground);
+    background: none;
+}
+
+/* Inline Code */
+code {
+    background-color: var(--vscode-textCodeBlock-background);
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-family: var(--vscode-editor-font-family);
+    font-size: 0.9em;
+}
+
+/* Thinking Indicator */
+#thinking-indicator {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    margin: var(--message-spacing) 0;
+    background-color: var(--vscode-editor-inactiveSelectionBackground);
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: var(--border-radius);
+    margin-right: 15%;
+    align-self: flex-start;
+}
+
+.thinking-dots {
+    display: flex;
+    gap: 4px;
+}
+
+.thinking-dots .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: var(--vscode-textLink-foreground);
+    animation: bounce 1.4s infinite ease-in-out;
+}
+
+.thinking-dots .dot:nth-child(1) {
+    animation-delay: -0.32s;
+}
+
+.thinking-dots .dot:nth-child(2) {
+    animation-delay: -0.16s;
+}
+
+@keyframes bounce {
+    0%, 80%, 100% {
+        transform: scale(0);
+        opacity: 0.5;
+    }
+    40% {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+.thinking-text {
+    font-size: 13px;
+    color: var(--vscode-descriptionForeground);
+    font-style: italic;
+}
+
+/* Input Container */
+#input-container {
+    display: flex;
+    gap: 8px;
+    padding: var(--container-padding);
+    border-top: 1px solid var(--vscode-panel-border);
+    background-color: var(--vscode-editor-background);
+}
+
+#user-input {
+    flex: 1;
+    padding: 10px 12px;
+    border: 1px solid var(--vscode-input-border);
+    background-color: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+    font-family: var(--vscode-font-family);
+    font-size: var(--vscode-font-size);
+    border-radius: 6px;
+    resize: none;
+    outline: none;
+    min-height: 60px;
+    max-height: 200px;
+}
+
+#user-input:focus {
+    border-color: var(--vscode-focusBorder);
+}
+
+#user-input::placeholder {
+    color: var(--vscode-input-placeholderForeground);
+}
+
+#send-btn {
+    padding: 10px 16px;
+    background-color: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.1s;
+    min-width: 44px;
+}
+
+#send-btn:hover {
+    background-color: var(--vscode-button-hoverBackground);
+}
+
+#send-btn:active {
+    transform: scale(0.95);
+}
+
+#send-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Scrollbar Styling */
+::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--vscode-scrollbarSlider-background);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--vscode-scrollbarSlider-background);
+    border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--vscode-scrollbarSlider-hoverBackground);
+}
+
+::-webkit-scrollbar-thumb:active {
+    background: var(--vscode-scrollbarSlider-activeBackground);
+}
+
+/* Error Message */
+.error-message {
+    background-color: var(--vscode-inputValidation-errorBackground);
+    border: 1px solid var(--vscode-inputValidation-errorBorder);
+    color: var(--vscode-errorForeground);
+    padding: 12px;
+    border-radius: var(--border-radius);
+    margin: var(--message-spacing) 0;
+}
+
+/* Empty State */
+.empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--vscode-descriptionForeground);
+    padding: 40px;
+    text-align: center;
+}
+
+.empty-state-icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+    opacity: 0.5;
+}
+
+.empty-state-text {
+    font-size: 16px;
+    margin-bottom: 8px;
+}
+
+.empty-state-hint {
+    font-size: 13px;
+    opacity: 0.7;
+}

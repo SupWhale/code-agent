@@ -64,3 +64,10 @@ temp/
 
 # Jupyter
 .ipynb_checkpoints/
+
+# VS Code Extension
+vscode-extension/node_modules/
+vscode-extension/out/
+vscode-extension/*.vsix
+vscode-extension/.vscode-test/
+vscode-extension/package-lock.json

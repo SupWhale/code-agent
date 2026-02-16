@@ -56,6 +56,11 @@
         "command": "aiAgent.showPanel",
         "title": "AI Agent: 패널 표시",
         "icon": "$(layout-panel)"
+      },
+      {
+        "command": "aiAgent.showChat",
+        "title": "AI Agent: 채팅 열기",
+        "icon": "$(comment-discussion)"
       }
     ],
     "menus": {
