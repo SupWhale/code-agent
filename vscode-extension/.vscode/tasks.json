@@ -1,0 +1,49 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "type": "npm",
+      "script": "watch",
+      "problemMatcher": "$tsc-watch",
+      "isBackground": true,
+      "presentation": {
+        "reveal": "never"
+      },
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "label": "npm: watch"
+    },
+    {
+      "type": "npm",
+      "script": "compile",
+      "problemMatcher": "$tsc",
+      "group": "build",
+      "label": "npm: compile"
+    },
+    {
+      "type": "shell",
+      "command": "\"C:/Program Files/nodejs/node.exe\" ./node_modules/typescript/bin/tsc -p .",
+      "problemMatcher": "$tsc",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "label": "tsc: build - tsconfig.json",
+      "detail": "TypeScript 컴파일 (직접 실행)"
+    },
+    {
+      "type": "shell",
+      "command": "\"C:/Program Files/nodejs/node.exe\" ./node_modules/typescript/bin/tsc -watch -p .",
+      "problemMatcher": "$tsc-watch",
+      "isBackground": true,
+      "presentation": {
+        "reveal": "never"
+      },
+      "group": "build",
+      "label": "tsc: watch - tsconfig.json",
+      "detail": "TypeScript 자동 컴파일 (watch mode)"
+    }
+  ]
+}

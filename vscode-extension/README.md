@@ -61,6 +61,50 @@ npm run compile
 
 ## Configuration
 
+### Network Setup
+
+#### 로컬 개발 (같은 컴퓨터)
+```json
+{
+  "aiAgent.serverUrl": "ws://localhost:8000"
+}
+```
+
+서버와 클라이언트가 같은 컴퓨터에서 실행:
+```
+[VS Code Extension] → [FastAPI Server] → [Docker Ollama]
+     localhost:8000        localhost:11434
+```
+
+#### 원격 서버 (다른 컴퓨터)
+```json
+{
+  "aiAgent.serverUrl": "ws://192.168.0.149:8000"
+}
+```
+
+클라이언트가 원격 서버에 연결:
+```
+[클라이언트 PC]          [서버 PC: 192.168.0.149]
+  VS Code Extension  →   FastAPI Server  →  Docker Ollama
+ws://192.168.0.149:8000     localhost:11434
+```
+
+**서버 시작 (원격)**:
+```bash
+# 서버 PC에서
+uvicorn src.main:app --host 0.0.0.0 --port 8000
+
+# 또는 Docker Compose
+docker-compose up -d
+```
+
+**방화벽 설정**:
+- 서버 PC의 방화벽에서 포트 8000 허용
+- Windows: `Windows Defender 방화벽` → `고급 설정` → `인바운드 규칙` → 포트 8000 허용
+
+### All Settings
+
 ```json
 {
   "aiAgent.serverUrl": "ws://localhost:8000",
@@ -71,9 +115,7 @@ npm run compile
 }
 ```
 
-### Settings
-
-- **serverUrl**: AI Agent server WebSocket URL
+- **serverUrl**: AI Agent server WebSocket URL (로컬: `ws://localhost:8000`, 원격: `ws://서버IP:8000`)
 - **autoConnect**: Auto-connect on VS Code startup
 - **autoUpload**: Auto-upload workspace files on connect
 - **showDiff**: Show diff viewer before applying changes

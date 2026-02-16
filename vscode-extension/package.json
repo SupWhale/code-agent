@@ -82,8 +82,14 @@
       "properties": {
         "aiAgent.serverUrl": {
           "type": "string",
-          "default": "ws://localhost:8000",
-          "description": "AI Agent 서버 URL (WebSocket)"
+          "default": "ws://192.168.0.149:8000",
+          "description": "AI Agent 서버 URL (WebSocket). 로컬: ws://localhost:8000, 원격: ws://192.168.0.149:8000",
+          "pattern": "^wss?://[a-zA-Z0-9.-]+(:[0-9]+)?$",
+          "examples": [
+            "ws://localhost:8000",
+            "ws://192.168.0.149:8000",
+            "ws://10.0.0.100:8000"
+          ]
         },
         "aiAgent.autoConnect": {
           "type": "boolean",
