@@ -20,6 +20,7 @@ export interface FileInfo {
 export class AgentConnection {
     private ws: WebSocket | null = null;
     private sessionId: string = '';
+    private _workspacePath: string = '';
     private reconnectAttempts = 0;
     private readonly maxReconnectAttempts = 5;
     private readonly reconnectDelay = 3000;
@@ -177,6 +178,11 @@ export class AgentConnection {
     private handleMessage(message: AgentMessage): void {
         this.log(`Received: ${message.type}`);
 
+        // 워크스페이스 경로 캐시 업데이트
+        if ((message.type === 'connected' || message.type === 'session_created') && message.workspace_path) {
+            this._workspacePath = message.workspace_path;
+        }
+
         const handler = this.messageHandlers.get(message.type);
         if (handler) {
             try {
@@ -185,6 +191,13 @@ export class AgentConnection {
                 this.log(`Handler error for ${message.type}: ${error}`);
             }
         }
+    }
+
+    /**
+     * 서버 워크스페이스 경로 조회
+     */
+    getWorkspacePath(): string {
+        return this._workspacePath;
     }
 
     /**

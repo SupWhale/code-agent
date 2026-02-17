@@ -136,6 +136,20 @@ export class ChatPanel {
     public setConnection(connection: AgentConnection) {
         this._connection = connection;
         this._setupConnectionHandlers();
+
+        // 이미 연결된 경우 서버 워크스페이스 경로를 즉시 전송
+        const cachedPath = connection.getWorkspacePath();
+        if (cachedPath) {
+            this._workspacePath = cachedPath;
+            this._panel.webview.postMessage({ type: 'workspaceInfo', path: cachedPath });
+        }
+
+        // VS Code에서 열린 로컬 폴더를 working-dir-input에 자동 설정
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (workspaceFolder) {
+            const localPath = workspaceFolder.uri.fsPath.replace(/\\/g, '/');
+            this._panel.webview.postMessage({ type: 'workspaceBrowseResult', path: localPath });
+        }
     }
 
     public static createOrShow(extensionUri: vscode.Uri, connection?: AgentConnection) {
@@ -145,7 +159,7 @@ export class ChatPanel {
         if (ChatPanel.currentPanel) {
             ChatPanel.currentPanel._panel.reveal(column);
             if (connection) {
-                ChatPanel.currentPanel._connection = connection;
+                ChatPanel.currentPanel.setConnection(connection);
             }
             return;
         }
@@ -166,7 +180,9 @@ export class ChatPanel {
         );
 
         ChatPanel.currentPanel = new ChatPanel(panel, extensionUri);
-        ChatPanel.currentPanel._connection = connection;
+        if (connection) {
+            ChatPanel.currentPanel.setConnection(connection);
+        }
     }
 
     private async _handleWebviewMessage(message: any) {
@@ -255,8 +271,8 @@ export class ChatPanel {
         try {
             // Get current context
             const context = await this._getCurrentContext();
-            const dirContext = (workingDir && workingDir !== '.')
-                ? `\n\n**작업 디렉토리**: \`${workingDir}\` (파일 경로는 이 디렉토리 기준 상대 경로 사용)`
+            const dirContext = workingDir
+                ? `\n\n**로컬 워크스페이스**: \`${workingDir}\` (파일 생성/수정 시 이 프로젝트 구조에 맞는 상대 경로 사용)`
                 : '';
             const fullPrompt = context
                 ? `${context}${dirContext}\n\n${text}`
@@ -315,7 +331,7 @@ export class ChatPanel {
         return context;
     }
 
-    private async _applyCode(code: string, language?: string) {
+    private async _applyCode(code: string, _language?: string) {
         const editor = vscode.window.activeTextEditor;
         if (!editor) {
             vscode.window.showWarningMessage('활성화된 편집기가 없습니다');
@@ -335,7 +351,7 @@ export class ChatPanel {
     }
 
     private _generateId(): string {
-        return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        return `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
     }
 
     private _update() {
