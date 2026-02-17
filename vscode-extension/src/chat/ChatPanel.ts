@@ -78,49 +78,37 @@ export class ChatPanel {
             });
         });
 
-        // Listen for task completion
-        this._connection.on('task_completed', (message) => {
-            const aiMessage: Message = {
-                id: this._generateId(),
-                role: 'assistant',
-                content: `✅ 작업 완료!\n\n${message.result || '성공적으로 완료되었습니다.'}`,
-                timestamp: new Date()
-            };
-            this._messages.push(aiMessage);
+        // Listen for agent events (task_completed/task_failed are nested here)
+        this._connection.on('agent_event', (message) => {
+            const event = message.event;
+            if (!event) { return; }
 
-            this._panel.webview.postMessage({
-                type: 'thinking',
-                show: false
-            });
-
-            this._panel.webview.postMessage({
-                type: 'aiMessage',
-                message: aiMessage
-            });
+            if (event.type === 'task_completed') {
+                const aiMessage: Message = {
+                    id: this._generateId(),
+                    role: 'assistant',
+                    content: `✅ ${event.message || '작업이 완료되었습니다.'}`,
+                    timestamp: new Date()
+                };
+                this._messages.push(aiMessage);
+                this._panel.webview.postMessage({ type: 'thinking', show: false });
+                this._panel.webview.postMessage({ type: 'aiMessage', message: aiMessage });
+            } else if (event.type === 'task_failed') {
+                this._panel.webview.postMessage({ type: 'thinking', show: false });
+                this._panel.webview.postMessage({
+                    type: 'error',
+                    message: event.error || '작업에 실패했습니다'
+                });
+            }
         });
 
         // Listen for errors
         this._connection.on('error', (message) => {
-            this._panel.webview.postMessage({
-                type: 'thinking',
-                show: false
-            });
-
+            this._panel.webview.postMessage({ type: 'thinking', show: false });
             this._panel.webview.postMessage({
                 type: 'error',
                 message: message.error || '오류가 발생했습니다'
             });
-        });
-
-        // Listen for thinking/progress
-        this._connection.on('agent_thinking', (message) => {
-            // Show streaming response
-            if (message.content) {
-                this._panel.webview.postMessage({
-                    type: 'aiThinking',
-                    content: message.content
-                });
-            }
         });
 
         // Capture workspace path on connect (both new and existing sessions)
@@ -276,56 +264,31 @@ export class ChatPanel {
                     ? `${dirContext.trim()}\n\n${text}`
                     : text;
 
-            // Send to AI (mock response for now, will integrate with WebSocket later)
-            const response = await this._getAIResponse(fullPrompt);
-
-            // Add AI message
-            const aiMessage: Message = {
-                id: this._generateId(),
-                role: 'assistant',
-                content: response,
-                timestamp: new Date(),
-                codeBlocks: this._extractCodeBlocks(response)
-            };
-            this._messages.push(aiMessage);
-
-            // Hide thinking indicator
-            this._panel.webview.postMessage({
-                type: 'thinking',
-                show: false
-            });
-
-            // Show AI response
-            this._panel.webview.postMessage({
-                type: 'aiMessage',
-                message: aiMessage
-            });
+            if (this._connection) {
+                // Connected: send request, response arrives via agent_event handlers
+                await this._connection.requestAgent(fullPrompt);
+                // thinking indicator stays on until task_completed/task_failed fires
+            } else {
+                // Not connected: show mock response
+                const response = `⚠️ 서버에 연결되지 않았습니다.\n\n먼저 "AI Agent: 서버 연결" 명령을 실행하세요.`;
+                const aiMessage: Message = {
+                    id: this._generateId(),
+                    role: 'assistant',
+                    content: response,
+                    timestamp: new Date()
+                };
+                this._messages.push(aiMessage);
+                this._panel.webview.postMessage({ type: 'thinking', show: false });
+                this._panel.webview.postMessage({ type: 'aiMessage', message: aiMessage });
+            }
 
         } catch (error: any) {
-            // Hide thinking indicator
-            this._panel.webview.postMessage({
-                type: 'thinking',
-                show: false
-            });
-
-            // Show error
+            this._panel.webview.postMessage({ type: 'thinking', show: false });
             this._panel.webview.postMessage({
                 type: 'error',
                 message: error.message || '오류가 발생했습니다'
             });
         }
-    }
-
-    private async _getAIResponse(prompt: string): Promise<string> {
-        if (this._connection) {
-            // Use actual WebSocket connection
-            await this._connection.requestAgent(prompt);
-            // Response will come through event handlers
-            return 'Processing...';
-        }
-
-        // Mock response when not connected
-        return `⚠️ 서버에 연결되지 않았습니다.\n\n먼저 "AI Agent: 서버 연결" 명령을 실행하세요.\n\n---\n\nMock 응답: "${prompt}"\n\n\`\`\`python\ndef example():\n    """Example function"""\n    return "Hello, World!"\n\`\`\``;
     }
 
     private async _getCurrentContext(): Promise<string> {
@@ -350,21 +313,6 @@ export class ChatPanel {
         }
 
         return context;
-    }
-
-    private _extractCodeBlocks(text: string): CodeBlock[] {
-        const codeBlockRegex = /```(\w+)?\n([\s\S]+?)\n```/g;
-        const blocks: CodeBlock[] = [];
-        let match;
-
-        while ((match = codeBlockRegex.exec(text)) !== null) {
-            blocks.push({
-                language: match[1] || 'text',
-                code: match[2]
-            });
-        }
-
-        return blocks;
     }
 
     private async _applyCode(code: string, language?: string) {

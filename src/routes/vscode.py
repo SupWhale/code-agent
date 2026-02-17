@@ -7,6 +7,7 @@ VS Code Extension을 위한 WebSocket 및 HTTP 엔드포인트
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any, List
+from pathlib import Path
 import json
 import logging
 from datetime import datetime
@@ -283,20 +284,24 @@ def init_vscode_router(
                             "event": event
                         })
 
-                        # 파일 변경 이벤트 처리
+                        # 파일 변경/생성 이벤트 처리
                         if event.get("type") == "action_success":
-                            action_type = event.get("action", {}).get("tool")
-                            if action_type == "edit_file":
-                                file_path = event.get("action", {}).get("params", {}).get("path")
+                            action_type = event.get("tool")
+                            if action_type in ("edit_file", "create_file"):
+                                file_path = event.get("params", {}).get("path")
                                 if file_path:
-                                    # 변경된 파일 내용 전송
-                                    new_content = session.get_file(file_path)
-                                    if new_content:
-                                        await websocket.send_json({
-                                            "type": "file_changed",
-                                            "path": file_path,
-                                            "content": new_content
-                                        })
+                                    # 디스크에서 직접 읽어서 전송
+                                    full_path = Path(session.workspace_path) / file_path
+                                    try:
+                                        if full_path.exists() and full_path.is_file():
+                                            content = full_path.read_text(encoding="utf-8")
+                                            await websocket.send_json({
+                                                "type": "file_changed",
+                                                "path": file_path,
+                                                "content": content
+                                            })
+                                    except Exception as e:
+                                        logger.warning(f"Failed to read file for sync: {file_path}: {e}")
 
                 elif message_type == "ping":
                     # 연결 유지용 ping

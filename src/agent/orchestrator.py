@@ -175,6 +175,7 @@ class AgentOrchestrator:
                         yield {
                             "type": "action_success",
                             "tool": tool_name,
+                            "params": params,
                             "result": result
                         }
 
