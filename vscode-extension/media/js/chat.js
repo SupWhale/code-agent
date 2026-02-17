@@ -10,6 +10,8 @@
     const contextBtn = document.getElementById('context-btn');
     const thinkingIndicator = document.getElementById('thinking-indicator');
     const messagesContainer = document.getElementById('messages-container');
+    const workingDirInput = document.getElementById('working-dir-input');
+    const browseDirBtn = document.getElementById('browse-dir-btn');
 
     // 이전 상태 복원
     const previousState = vscode.getState() || { messages: [] };
@@ -34,9 +36,11 @@
         userInput.style.height = 'auto';
 
         // Extension에 메시지 전송
+        const workingDir = workingDirInput ? workingDirInput.value.trim() || '.' : '.';
         vscode.postMessage({
             type: 'userMessage',
-            text: text
+            text: text,
+            workingDir: workingDir
         });
     }
 
@@ -278,6 +282,16 @@
                 // 컨텍스트 정보 표시 (나중에 구현)
                 console.log('Context:', message.context);
                 break;
+
+            case 'workspaceInfo':
+                updateWorkspacePath(message.path);
+                break;
+
+            case 'workspaceBrowseResult':
+                if (workingDirInput && message.path) {
+                    workingDirInput.value = message.path;
+                }
+                break;
         }
     });
 
@@ -310,6 +324,18 @@
         scrollToBottom();
     }
 
+    // Workspace 경로 표시 업데이트
+    function updateWorkspacePath(path) {
+        const workspacePathEl = document.getElementById('workspace-path');
+        if (workspacePathEl && path) {
+            // 서버 절대 경로에서 마지막 의미있는 부분만 표시
+            const parts = path.replace(/\\/g, '/').split('/');
+            const displayPath = parts.slice(-3).join('/');
+            workspacePathEl.textContent = displayPath;
+            workspacePathEl.title = path;
+        }
+    }
+
     // 이벤트 리스너
     sendBtn.addEventListener('click', sendMessage);
 
@@ -325,6 +351,23 @@
         userInput.style.height = 'auto';
         userInput.style.height = Math.min(userInput.scrollHeight, 200) + 'px';
     });
+
+    // 폴더 브라우즈 버튼
+    if (browseDirBtn) {
+        browseDirBtn.addEventListener('click', () => {
+            vscode.postMessage({ type: 'browseWorkspace' });
+        });
+    }
+
+    // working-dir-input: Enter 키로 포커스 해제
+    if (workingDirInput) {
+        workingDirInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                workingDirInput.blur();
+                userInput.focus();
+            }
+        });
+    }
 
     clearBtn.addEventListener('click', () => {
         if (confirm('채팅 내역을 모두 삭제하시겠습니까?')) {

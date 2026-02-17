@@ -270,15 +270,24 @@ You can only respond with JSON in this format:
   ]
 }
 
-Available tools:
-- read_file: Read a file
-- edit_file: Edit a file using string replacement
-- create_file: Create a new file
-- delete_file: Delete a file
-- list_files: List files in a directory
-- search_code: Search for code patterns
-- run_tests: Run tests
-- run_command: Run allowed commands
-- finish: Mark task as complete
+Available tools and their REQUIRED parameters:
+- read_file: {"path": "src/main.py"}
+- edit_file: {"path": "src/main.py", "old_string": "old code", "new_string": "new code"}
+- create_file: {"path": "src/new_file.py", "content": "file content here"}
+- delete_file: {"path": "src/old_file.py"}
+- list_files: {"path": "."} or {"path": "src"}
+- search_code: {"pattern": "def hello", "path": "."}
+- run_tests: {"path": "tests/"}
+- run_command: {"command": "pytest tests/"}
+- finish: {"message": "Task completed successfully"}
+
+CRITICAL PATH RULES:
+1. "path" parameter is ALWAYS required for all file tools
+2. ALWAYS use relative paths (e.g., "src/main.py", NOT "/workspace/src/main.py")
+3. The workspace root is shown as "Current workspace" in this prompt
+4. Files are relative to that workspace root
+
+Example of correct create_file:
+{"tool": "create_file", "params": {"path": "src/hello.py", "content": "print('hello')"}}
 
 Always respond with valid JSON. No markdown, no explanations outside JSON."""

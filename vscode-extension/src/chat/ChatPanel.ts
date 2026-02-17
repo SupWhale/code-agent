@@ -23,6 +23,7 @@ export class ChatPanel {
     private _disposables: vscode.Disposable[] = [];
     private _messages: Message[] = [];
     private _connection: AgentConnection | undefined;
+    private _workspacePath: string = '';
 
     private constructor(panel: vscode.WebviewPanel, extensionUri: vscode.Uri) {
         this._panel = panel;
@@ -121,6 +122,27 @@ export class ChatPanel {
                 });
             }
         });
+
+        // Capture workspace path on connect (both new and existing sessions)
+        this._connection.on('connected', (message) => {
+            if (message.workspace_path) {
+                this._workspacePath = message.workspace_path;
+                this._panel.webview.postMessage({
+                    type: 'workspaceInfo',
+                    path: this._workspacePath
+                });
+            }
+        });
+
+        this._connection.on('session_created', (message) => {
+            if (message.workspace_path) {
+                this._workspacePath = message.workspace_path;
+                this._panel.webview.postMessage({
+                    type: 'workspaceInfo',
+                    path: this._workspacePath
+                });
+            }
+        });
     }
 
     public setConnection(connection: AgentConnection) {
@@ -162,7 +184,11 @@ export class ChatPanel {
     private async _handleWebviewMessage(message: any) {
         switch (message.type) {
             case 'userMessage':
-                await this._handleUserMessage(message.text);
+                await this._handleUserMessage(message.text, message.workingDir);
+                break;
+
+            case 'browseWorkspace':
+                await this._handleBrowseWorkspace();
                 break;
 
             case 'applyCode':
@@ -189,7 +215,34 @@ export class ChatPanel {
         }
     }
 
-    private async _handleUserMessage(text: string) {
+    private async _handleBrowseWorkspace() {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        const uris = await vscode.window.showOpenDialog({
+            canSelectFiles: false,
+            canSelectFolders: true,
+            canSelectMany: false,
+            defaultUri: workspaceFolder?.uri,
+            openLabel: '이 폴더를 작업 디렉토리로 사용'
+        });
+
+        if (uris && uris.length > 0) {
+            let selectedPath = uris[0].fsPath;
+            if (workspaceFolder) {
+                const wsPath = workspaceFolder.uri.fsPath;
+                if (selectedPath.startsWith(wsPath)) {
+                    selectedPath = selectedPath.slice(wsPath.length).replace(/^[/\\]/, '') || '.';
+                }
+            }
+            // Normalize to forward slashes
+            selectedPath = selectedPath.replace(/\\/g, '/');
+            this._panel.webview.postMessage({
+                type: 'workspaceBrowseResult',
+                path: selectedPath
+            });
+        }
+    }
+
+    private async _handleUserMessage(text: string, workingDir?: string) {
         // Add user message
         const userMessage: Message = {
             id: this._generateId(),
@@ -214,7 +267,14 @@ export class ChatPanel {
         try {
             // Get current context
             const context = await this._getCurrentContext();
-            const fullPrompt = context ? `${context}\n\n${text}` : text;
+            const dirContext = (workingDir && workingDir !== '.')
+                ? `\n\n**작업 디렉토리**: \`${workingDir}\` (파일 경로는 이 디렉토리 기준 상대 경로 사용)`
+                : '';
+            const fullPrompt = context
+                ? `${context}${dirContext}\n\n${text}`
+                : dirContext
+                    ? `${dirContext.trim()}\n\n${text}`
+                    : text;
 
             // Send to AI (mock response for now, will integrate with WebSocket later)
             const response = await this._getAIResponse(fullPrompt);
@@ -368,6 +428,16 @@ export class ChatPanel {
                     <span class="codicon codicon-trash"></span>
                 </button>
             </div>
+        </div>
+        <div id="workspace-bar">
+            <span class="ws-label">📁 서버:</span>
+            <span id="workspace-path" title="서버 워크스페이스 경로">연결 대기 중...</span>
+            <span class="ws-sep">|</span>
+            <span class="ws-label">📂 작업 경로:</span>
+            <input id="working-dir-input" type="text" value="." placeholder="." title="AI가 파일을 생성/수정할 디렉토리 (예: src, src/api)">
+            <button id="browse-dir-btn" class="ws-browse-btn" title="VS Code에서 폴더 선택">
+                <span class="codicon codicon-folder-opened"></span>
+            </button>
         </div>
 
         <div id="messages-container">

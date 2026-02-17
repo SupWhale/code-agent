@@ -66,6 +66,86 @@ body {
     background-color: var(--vscode-toolbar-activeBackground);
 }
 
+/* Workspace Bar */
+#workspace-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px var(--container-padding);
+    background-color: var(--vscode-editorGroupHeader-tabsBackground, var(--vscode-editor-background));
+    border-bottom: 1px solid var(--vscode-panel-border);
+    font-size: 11px;
+    color: var(--vscode-descriptionForeground);
+    min-height: 26px;
+    flex-wrap: nowrap;
+    overflow: hidden;
+}
+
+.ws-label {
+    opacity: 0.7;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.ws-sep {
+    opacity: 0.3;
+    flex-shrink: 0;
+}
+
+#workspace-path {
+    font-family: var(--vscode-editor-font-family);
+    font-size: 11px;
+    color: var(--vscode-textLink-foreground);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: default;
+    max-width: 120px;
+    flex-shrink: 1;
+}
+
+#working-dir-input {
+    flex: 1;
+    min-width: 60px;
+    max-width: 180px;
+    padding: 1px 6px;
+    border: 1px solid var(--vscode-input-border);
+    background-color: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+    font-family: var(--vscode-editor-font-family);
+    font-size: 11px;
+    border-radius: 3px;
+    outline: none;
+}
+
+#working-dir-input:focus {
+    border-color: var(--vscode-focusBorder);
+}
+
+#working-dir-input::placeholder {
+    color: var(--vscode-input-placeholderForeground);
+}
+
+.ws-browse-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 3px;
+    opacity: 0.7;
+    color: var(--vscode-foreground);
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    font-size: 13px;
+    line-height: 1;
+}
+
+.ws-browse-btn:hover {
+    background-color: var(--vscode-toolbar-hoverBackground);
+    opacity: 1;
+}
+
 /* Messages Container */
 #messages-container {
     flex: 1;

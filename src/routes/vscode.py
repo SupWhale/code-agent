@@ -233,6 +233,7 @@ def init_vscode_router(
             await websocket.send_json({
                 "type": "connected",
                 "session_id": session_id,
+                "workspace_path": str(session.workspace_path),
                 "timestamp": datetime.now().isoformat()
             })
 
