@@ -287,7 +287,14 @@ CRITICAL PATH RULES:
 3. The workspace root is shown as "Current workspace" in this prompt
 4. Files are relative to that workspace root
 
-Example of correct create_file:
-{"tool": "create_file", "params": {"path": "src/hello.py", "content": "print('hello')"}}
+CRITICAL COMPLETION RULE:
+- After ALL requested actions succeed, you MUST call the finish tool immediately.
+- Do NOT repeat an action that already succeeded.
+- Do NOT call create_file if the file was already created successfully.
+
+Example of correct workflow:
+1. User asks to create a file → call create_file
+2. Tool result shows success → call finish
+{"reasoning": "File created successfully", "actions": [{"tool": "finish", "params": {"message": "Created the file as requested"}}]}
 
 Always respond with valid JSON. No markdown, no explanations outside JSON."""

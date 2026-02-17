@@ -78,6 +78,9 @@ class AgentOrchestrator:
 
         state.start()
 
+        # 태스크 전용 executor 생성 (세션별 workspace 격리)
+        task_executor = ToolExecutor(workspace_path=workspace_path)
+
         # 초기 사용자 메시지
         memory.add_user_message(user_request)
 
@@ -157,8 +160,8 @@ class AgentOrchestrator:
                             workspace_path
                         )
 
-                        # 도구 실행
-                        result = await self.executor.execute(tool_name, params)
+                        # 도구 실행 (태스크 전용 executor 사용)
+                        result = await task_executor.execute(tool_name, params)
 
                         action_results.append({
                             "tool": tool_name,
@@ -241,10 +244,12 @@ class AgentOrchestrator:
                                 f"({consecutive_failures}). Aborting."
                             )
 
-                # 3. 결과를 메모리에 추가
+                # 3. 결과를 메모리에 추가 (user role로 추가해야 LLM이 인식)
                 results_summary = self._format_results(action_results)
-                memory.add_system_message(
-                    f"Tool execution results:\n{results_summary}"
+                memory.add_user_message(
+                    f"Tool execution results:\n{results_summary}\n\n"
+                    f"If all requested tasks are now complete, call the 'finish' tool with a summary message. "
+                    f"If there are more steps needed, continue with the next action."
                 )
 
                 # 4. 상태 업데이트
