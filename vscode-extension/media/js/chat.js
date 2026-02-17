@@ -82,8 +82,9 @@
         let formatted = text;
 
         if (codeBlocks && codeBlocks.length > 0) {
-            codeBlocks.forEach((block, index) => {
-                const codeBlockHtml = createCodeBlock(block.language, block.code, index);
+            codeBlocks.forEach((block) => {
+                const globalIndex = codeBlockCounter++;
+                const codeBlockHtml = createCodeBlock(block.language, block.code, globalIndex, block.path);
                 // 코드 블록을 HTML로 치환
                 const pattern = new RegExp('```' + block.language + '?\\n[\\s\\S]*?\\n```', 'g');
                 formatted = formatted.replace(pattern, codeBlockHtml);
@@ -105,28 +106,26 @@
         return formatted;
     }
 
-    // 코드 블록 생성
-    function createCodeBlock(language, code, index) {
-        const escapedCode = escapeHtml(code);
+    // 코드 블록 생성 (CSP 준수: onclick 대신 data-* + 이벤트 위임)
+    // 주의: \n → <br> 전역 치환에 의해 HTML 구조가 깨지지 않도록 한 줄로 생성
+    //       코드 내 개행은 &#10; 으로 이스케이프 (textContent로 읽을 때 \n 복원됨)
+    function createCodeBlock(language, code, index, filePath) {
+        const escapedCode = escapeHtml(code).replace(/\n/g, '&#10;');
         const prismLang = getPrismLanguage(language);
-        return `
-            <div class="code-block" data-index="${index}">
-                <div class="code-header">
-                    <span class="code-language">${language}</span>
-                    <div class="code-actions">
-                        <button class="code-btn copy-btn" onclick="copyCode(${index})">
-                            복사
-                        </button>
-                        <button class="code-btn apply-btn" onclick="applyCode('${language}', ${index})">
-                            적용
-                        </button>
-                    </div>
-                </div>
-                <div class="code-content">
-                    <pre><code class="language-${prismLang}">${escapedCode}</code></pre>
-                </div>
-            </div>
-        `;
+        const label = filePath ? filePath : language;
+        const escapedLabel = escapeHtml(label);
+        const escapedLang = escapeHtml(language);
+        const escapedFilePath = filePath ? escapeHtml(filePath) : '';
+        // 모든 HTML을 한 줄로 (중간에 \n이 없어야 전역 치환에 안전)
+        return '<div class="code-block" data-index="' + index + '">'
+            + '<div class="code-header">'
+            + '<span class="code-language">' + escapedLabel + '</span>'
+            + '<div class="code-actions">'
+            + '<button class="code-btn copy-btn" data-action="copy" data-index="' + index + '">복사</button>'
+            + '<button class="code-btn apply-btn" data-action="apply" data-index="' + index + '" data-language="' + escapedLang + '" data-filepath="' + escapedFilePath + '">적용</button>'
+            + '</div></div>'
+            + '<div class="code-content"><pre><code class="language-' + prismLang + '">' + escapedCode + '</code></pre></div>'
+            + '</div>';
     }
 
     // Prism 언어 매핑
@@ -156,30 +155,38 @@
         return div.innerHTML;
     }
 
-    // 코드 복사
-    window.copyCode = function (index) {
+    // 이벤트 위임: 코드블록 버튼 클릭 처리 (CSP 준수 - onclick 속성 미사용)
+    messagesDiv.addEventListener('click', function (e) {
+        const btn = e.target.closest('button[data-action]');
+        if (!btn) return;
+
+        const action = btn.getAttribute('data-action');
+        const index = btn.getAttribute('data-index');
         const codeBlock = document.querySelector(`.code-block[data-index="${index}"]`);
-        if (!codeBlock) return;
-
+        if (!codeBlock) {
+            console.error('[codeBlock btn] element not found for index:', index);
+            return;
+        }
         const code = codeBlock.querySelector('code').textContent;
-        vscode.postMessage({
-            type: 'copyCode',
-            code: code
-        });
-    };
 
-    // 코드 적용
-    window.applyCode = function (language, index) {
-        const codeBlock = document.querySelector(`.code-block[data-index="${index}"]`);
-        if (!codeBlock) return;
+        if (action === 'copy') {
+            console.log('[copyCode] index:', index, 'code length:', code ? code.length : 0);
+            vscode.postMessage({ type: 'copyCode', code: code });
 
-        const code = codeBlock.querySelector('code').textContent;
-        vscode.postMessage({
-            type: 'applyCode',
-            code: code,
-            language: language
-        });
-    };
+        } else if (action === 'apply') {
+            const language = btn.getAttribute('data-language') || 'text';
+            const rawFilePath = btn.getAttribute('data-filepath');
+            const filePath = rawFilePath && rawFilePath.trim() !== '' ? rawFilePath : null;
+            console.log('[applyCode] index:', index, '| language:', language, '| filePath:', filePath, '| code length:', code ? code.length : 0);
+            vscode.postMessage({
+                type: 'applyCode',
+                code: code,
+                language: language,
+                filePath: filePath
+            });
+            console.log('[applyCode] postMessage sent');
+        }
+    });
 
     // 빈 상태 표시
     function showEmptyState() {
@@ -242,6 +249,9 @@
 
         vscode.setState({ messages });
     }
+
+    // 전역 코드블록 카운터 (메시지마다 0으로 리셋되지 않도록)
+    let codeBlockCounter = 0;
 
     let currentStreamingMessage = null;
 

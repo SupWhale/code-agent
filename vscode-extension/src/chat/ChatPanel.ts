@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
 import { AgentConnection } from '../connection';
 
 interface Message {
@@ -12,6 +13,7 @@ interface Message {
 interface CodeBlock {
     language: string;
     code: string;
+    path?: string;
     startLine?: number;
     endLine?: number;
 }
@@ -63,7 +65,8 @@ export class ChatPanel {
                 timestamp: new Date(),
                 codeBlocks: [{
                     language: message.language || 'text',
-                    code: fileContent
+                    code: fileContent,
+                    path: message.path
                 }]
             };
             this._messages.push(aiMessage);
@@ -197,7 +200,12 @@ export class ChatPanel {
                 break;
 
             case 'applyCode':
-                await this._applyCode(message.code, message.language);
+                console.log('[ChatPanel] applyCode received:', {
+                    filePath: message.filePath,
+                    language: message.language,
+                    codeLength: message.code ? message.code.length : 0
+                });
+                await this._applyCode(message.code, message.language, message.filePath);
                 break;
 
             case 'copyCode':
@@ -332,7 +340,41 @@ export class ChatPanel {
         return context;
     }
 
-    private async _applyCode(code: string, _language?: string) {
+    private async _applyCode(code: string, _language?: string, filePath?: string | null) {
+        console.log('[ChatPanel._applyCode] start | filePath:', filePath, '| codeLength:', code?.length);
+
+        // file_changed 메시지에서 온 경우: 파일 경로로 직접 저장
+        if (filePath) {
+            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+            console.log('[ChatPanel._applyCode] workspaceFolder:', workspaceFolder?.uri.fsPath ?? 'NONE');
+
+            if (!workspaceFolder) {
+                vscode.window.showWarningMessage('VS Code 워크스페이스가 없습니다');
+                return;
+            }
+            const fullPath = path.join(workspaceFolder.uri.fsPath, filePath);
+            console.log('[ChatPanel._applyCode] fullPath:', fullPath);
+
+            const uri = vscode.Uri.file(fullPath);
+            const dirUri = vscode.Uri.file(path.dirname(fullPath));
+
+            try {
+                await vscode.workspace.fs.createDirectory(dirUri);
+                console.log('[ChatPanel._applyCode] directory created');
+
+                await vscode.workspace.fs.writeFile(uri, Buffer.from(code, 'utf8'));
+                console.log('[ChatPanel._applyCode] file written successfully');
+
+                vscode.window.showInformationMessage(`✅ ${path.basename(filePath)} 저장 완료!`);
+            } catch (err: any) {
+                console.error('[ChatPanel._applyCode] write failed:', err);
+                vscode.window.showErrorMessage(`파일 저장 실패: ${err.message ?? err}`);
+            }
+            return;
+        }
+
+        console.log('[ChatPanel._applyCode] no filePath, inserting into active editor');
+        // 일반 코드 블록: 현재 활성 에디터에 삽입
         const editor = vscode.window.activeTextEditor;
         if (!editor) {
             vscode.window.showWarningMessage('활성화된 편집기가 없습니다');
@@ -436,6 +478,7 @@ export class ChatPanel {
     <script nonce="${nonce}" src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-javascript.min.js"></script>
     <script nonce="${nonce}" src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
     <script nonce="${nonce}" src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-java.min.js"></script>
+    <script nonce="${nonce}" src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-c.min.js"></script>
     <script nonce="${nonce}" src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-cpp.min.js"></script>
     <script nonce="${nonce}" src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-csharp.min.js"></script>
     <script nonce="${nonce}" src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
