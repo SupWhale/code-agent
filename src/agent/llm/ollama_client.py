@@ -44,7 +44,7 @@ class OllamaAgentClient:
     def __init__(
         self,
         host: str,
-        model: str = "qwen2.5-coder:14b",
+        model: str = "qwen2.5-coder:7b",
         temperature: float = 0.1,
         system_prompt_path: Optional[str] = None
     ):

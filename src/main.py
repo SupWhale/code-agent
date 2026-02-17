@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 
 # Environment variables
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-MODEL_NAME = os.getenv("MODEL_NAME", "qwen2.5-coder:14b")
+MODEL_NAME = os.getenv("MODEL_NAME", "qwen2.5-coder:7b")
 WORKSPACE_PATH = Path(os.getenv("WORKSPACE_PATH", ".")).resolve()  # 현재 디렉토리를 기본값으로
 MAX_FILE_SIZE = int(os.getenv("MAX_FILE_SIZE", "104857600"))  # 100MB in bytes
 

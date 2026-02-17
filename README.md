@@ -117,10 +117,10 @@ bash scripts/dev.sh
 
 ```bash
 # Ollama가 실행 중인 경우
-ollama pull qwen2.5-coder:14b
+ollama pull qwen2.5-coder:7b
 
 # Docker 컨테이너 내부에서
-docker exec ollama ollama pull qwen2.5-coder:14b
+docker exec ollama ollama pull qwen2.5-coder:7b
 ```
 
 ---

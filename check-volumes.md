@@ -33,7 +33,7 @@ docker exec ollama ollama list
 ### Case 1: Ollama 컨테이너가 실행 중이고 모델이 있는 경우
 ```bash
 docker exec ollama ollama list
-# qwen2.5-coder:14b 가 보이면 → 다시 받을 필요 없음!
+# qwen2.5-coder:7b 가 보이면 → 다시 받을 필요 없음!
 ```
 
 **액션**: 그냥 새 프로젝트로 진행하면 됩니다.
@@ -66,7 +66,7 @@ docker volume ls | grep ollama
 cd ~/coding-agent-project/deployment
 docker compose up -d --build
 # 모델 다운로드 (약 8GB, 10-30분 소요)
-docker exec ollama ollama pull qwen2.5-coder:14b
+docker exec ollama ollama pull qwen2.5-coder:7b
 ```
 
 ---

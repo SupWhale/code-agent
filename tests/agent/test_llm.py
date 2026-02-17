@@ -154,7 +154,7 @@ class TestOllamaAgentClient:
             def list(self):
                 return {
                     "models": [
-                        {"name": "qwen2.5-coder:14b"}
+                        {"name": "qwen2.5-coder:7b"}
                     ]
                 }
 

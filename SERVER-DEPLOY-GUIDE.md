@@ -12,7 +12,7 @@ cd ~/coding-agent-project
 cat > .env << 'EOF'
 # Ollama 설정
 OLLAMA_HOST=http://ollama:11434
-MODEL_NAME=qwen2.5-coder:14b
+MODEL_NAME=qwen2.5-coder:7b
 
 # API 설정
 API_PORT=8000
@@ -84,7 +84,7 @@ docker compose logs -f coding-agent
 ### 10. Ollama 모델 다운로드
 ```bash
 # 모델 다운로드 (약 8-10GB, 10-30분 소요)
-docker exec ollama ollama pull qwen2.5-coder:14b
+docker exec ollama ollama pull qwen2.5-coder:7b
 
 # 모델 확인
 docker exec ollama ollama list

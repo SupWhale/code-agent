@@ -255,7 +255,7 @@ nano .env
 ```bash
 # Ollama 설정
 OLLAMA_HOST=http://ollama:11434
-MODEL_NAME=qwen2.5-coder:14b
+MODEL_NAME=qwen2.5-coder:7b
 
 # API 설정
 API_PORT=8000
@@ -292,7 +292,7 @@ make dev
 make deploy-local
 
 # Ollama 모델 다운로드
-docker exec ollama ollama pull qwen2.5-coder:14b
+docker exec ollama ollama pull qwen2.5-coder:7b
 
 # 테스트
 curl http://localhost:8000/health
@@ -333,7 +333,7 @@ ssh user@server-ip
 
 # 모델 다운로드
 cd ~/coding-agent-project/deployment
-docker exec ollama ollama pull qwen2.5-coder:14b
+docker exec ollama ollama pull qwen2.5-coder:7b
 
 # 확인
 docker exec ollama ollama list
@@ -492,7 +492,7 @@ docker restart ollama
 
 # 수동 다운로드
 docker exec -it ollama bash
-ollama pull qwen2.5-coder:14b
+ollama pull qwen2.5-coder:7b
 ```
 
 **문제**: Ollama 연결 실패

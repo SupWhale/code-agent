@@ -57,7 +57,7 @@ pip install -r requirements.txt
 
 ```bash
 # Ollama 설치 후
-ollama pull qwen2.5-coder:14b
+ollama pull qwen2.5-coder:7b
 ollama serve
 ```
 

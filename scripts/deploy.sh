@@ -47,7 +47,7 @@ for i in {1..5}; do
         echo "  - Prometheus: http://localhost:9090"
         echo ""
         echo "Ollama 모델 다운로드:"
-        echo "  docker exec ollama ollama pull qwen2.5-coder:14b"
+        echo "  docker exec ollama ollama pull qwen2.5-coder:7b"
         exit 0
     fi
     echo "시도 $i/5..."

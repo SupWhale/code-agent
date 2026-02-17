@@ -30,7 +30,7 @@ services:
       - ./workspace:/workspace
     environment:
       - OLLAMA_HOST=http://ollama:11434
-      - MODEL_NAME=qwen2.5-coder:14b
+      - MODEL_NAME=qwen2.5-coder:7b
       - API_PORT=8000
       - LOG_LEVEL=INFO
       - WORKSPACE_PATH=/workspace

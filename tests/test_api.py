@@ -10,7 +10,7 @@ import os
 
 # 테스트용 환경변수 설정
 os.environ["OLLAMA_HOST"] = "http://localhost:11434"
-os.environ["MODEL_NAME"] = "qwen2.5-coder:14b"
+os.environ["MODEL_NAME"] = "qwen2.5-coder:7b"
 os.environ["WORKSPACE_PATH"] = "/tmp/test_workspace"
 
 

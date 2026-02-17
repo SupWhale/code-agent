@@ -292,7 +292,7 @@ class OllamaAgentClient:
     def __init__(
         self,
         host: str,
-        model: str = "qwen2.5-coder:14b",
+        model: str = "qwen2.5-coder:7b",
         temperature: float = 0.1,
         system_prompt_path: str = "prompts/system_prompt.txt"
     ):
@@ -936,7 +936,7 @@ async def agent_websocket(websocket: WebSocket, task_id: str):
         # 오케스트레이터 초기화
         llm_client = OllamaAgentClient(
             host="http://ollama:11434",
-            model="qwen2.5-coder:14b"
+            model="qwen2.5-coder:7b"
         )
 
         executor = ToolExecutor(workspace_path=task["workspace_path"])
