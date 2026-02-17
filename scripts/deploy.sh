@@ -26,9 +26,9 @@ mkdir -p workspace models
 
 # Docker Compose 실행
 echo -e "${YELLOW}Docker Compose 시작 중...${NC}"
-docker-compose down
-docker-compose build
-docker-compose up -d
+docker compose down
+docker compose build
+docker compose up -d
 
 # 잠시 대기
 echo -e "${YELLOW}서비스 초기화 대기 중...${NC}"
@@ -55,4 +55,4 @@ for i in {1..5}; do
 done
 
 echo -e "${YELLOW}헬스체크 실패. 로그를 확인하세요:${NC}"
-echo "docker-compose logs -f coding-agent"
+echo "docker compose logs -f coding-agent"

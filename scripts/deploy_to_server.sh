@@ -116,12 +116,12 @@ ssh -p "${SERVER_PORT:-22}" "${SERVER_USER}@${SERVER_HOST}" "
 
     # Docker 이미지 빌드
     echo '도커 이미지 빌드 중...'
-    docker-compose build --no-cache coding-agent
+    docker compose build --no-cache coding-agent
 
     # 컨테이너 재시작
     echo '컨테이너 재시작 중...'
-    docker-compose down
-    docker-compose up -d
+    docker compose down
+    docker compose up -d
 
     # 잠시 대기
     sleep 10
@@ -148,7 +148,7 @@ for i in $(seq 1 $MAX_RETRIES); do
         # 롤백
         ssh -p "${SERVER_PORT:-22}" "${SERVER_USER}@${SERVER_HOST}" "
             cd '${SERVER_PATH}/deployment'
-            docker-compose down
+            docker compose down
 
             # 최신 백업 복원
             BACKUP_DIR='${SERVER_PATH}/../backup'
@@ -158,7 +158,7 @@ for i in $(seq 1 $MAX_RETRIES); do
                 cd '${SERVER_PATH}'
                 tar -xzf \$LATEST_BACKUP
                 cd deployment
-                docker-compose up -d
+                docker compose up -d
             fi
         "
 
@@ -183,4 +183,4 @@ echo ""
 echo "로그 확인:"
 echo "  ssh -p ${SERVER_PORT:-22} ${SERVER_USER}@${SERVER_HOST}"
 echo "  cd ${SERVER_PATH}/deployment"
-echo "  docker-compose logs -f coding-agent"
+echo "  docker compose logs -f coding-agent"

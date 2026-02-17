@@ -62,7 +62,7 @@ sudo apt install -y \
 
 ```bash
 docker --version
-docker-compose --version
+docker compose version
 ```
 
 ### 1.4. VS Code 설치
@@ -171,7 +171,7 @@ ssh user@server-ip
 
 # 확인
 docker --version
-docker-compose --version
+docker compose version
 ```
 
 ### 3.3. NVIDIA Container Toolkit 설치 (GPU 사용 시)
@@ -299,7 +299,7 @@ curl http://localhost:8000/health
 
 # 종료
 cd deployment
-docker-compose down
+docker compose down
 ```
 
 ### 5.3. 서버 배포
@@ -460,7 +460,7 @@ nvidia-smi
 docker run --rm --gpus all nvidia/cuda:11.0-base nvidia-smi
 
 # Docker Compose 로그
-docker-compose logs ollama
+docker compose logs ollama
 ```
 
 **문제**: 컨테이너가 시작되지 않음
@@ -471,12 +471,12 @@ docker logs coding-agent
 docker logs ollama
 
 # 컨테이너 재시작
-docker-compose restart
+docker compose restart
 
 # 완전 재빌드
-docker-compose down
-docker-compose build --no-cache
-docker-compose up -d
+docker compose down
+docker compose build --no-cache
+docker compose up -d
 ```
 
 ### 7.4. Ollama 관련
@@ -520,7 +520,7 @@ curl http://localhost:8000/health
 
 # 로그 확인
 cd ~/coding-agent-project/deployment
-docker-compose logs -f coding-agent
+docker compose logs -f coding-agent
 
 # 롤백
 make rollback
@@ -593,7 +593,7 @@ python3 --version
 docker ps -a
 
 # 로그
-docker-compose logs --tail=100
+docker compose logs --tail=100
 ```
 
 ---

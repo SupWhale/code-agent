@@ -112,7 +112,7 @@ code --install-extension ai-coding-agent-0.1.0.vsix
    - Console에서 에러 확인
 
 3. **서버 로그 확인**
-   - 서버 측 `docker-compose logs -f coding-agent`
+   - 서버 측 `docker compose logs -f coding-agent`
 
 ### 테스트
 

@@ -77,7 +77,7 @@ OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 #### Docker Compose (프로덕션)
 ```bash
 cd deployment
-docker-compose up -d
+docker compose up -d
 
 # 포트 확인
 # - 8000: FastAPI (외부 접속 허용)

@@ -96,7 +96,7 @@ ws://192.168.0.149:8000     localhost:11434
 uvicorn src.main:app --host 0.0.0.0 --port 8000
 
 # 또는 Docker Compose
-docker-compose up -d
+docker compose up -d
 ```
 
 **방화벽 설정**:

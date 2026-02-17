@@ -72,13 +72,13 @@ chmod -R 777 models
 
 ```bash
 # deployment 디렉토리에서
-docker-compose build
+docker compose build
 
 # 서비스 시작
-docker-compose up -d
+docker compose up -d
 
 # 로그 확인
-docker-compose logs -f coding-agent
+docker compose logs -f coding-agent
 ```
 
 ### 5단계: Ollama 모델 다운로드
@@ -116,36 +116,36 @@ curl http://localhost:11434/api/tags
 
 ### 상태 확인
 ```bash
-docker-compose ps
+docker compose ps
 ```
 
 ### 로그 확인
 ```bash
 # 전체 로그
-docker-compose logs
+docker compose logs
 
 # 특정 서비스 로그 (실시간)
-docker-compose logs -f coding-agent
-docker-compose logs -f ollama
+docker compose logs -f coding-agent
+docker compose logs -f ollama
 ```
 
 ### 재시작
 ```bash
 # 전체 재시작
-docker-compose restart
+docker compose restart
 
 # 특정 서비스 재시작
-docker-compose restart coding-agent
+docker compose restart coding-agent
 ```
 
 ### 중지
 ```bash
-docker-compose stop
+docker compose stop
 ```
 
 ### 완전 삭제 (데이터 포함)
 ```bash
-docker-compose down -v
+docker compose down -v
 ```
 
 ---
@@ -239,7 +239,7 @@ docker stats ollama
 ### 문제 2: Agent 시스템 초기화 실패
 ```bash
 # 로그 확인
-docker-compose logs coding-agent | grep "ERROR"
+docker compose logs coding-agent | grep "ERROR"
 ```
 
 **주요 원인**:
@@ -252,8 +252,8 @@ docker-compose logs coding-agent | grep "ERROR"
 chmod -R 777 deployment/workspace
 
 # Ollama 재시작
-docker-compose restart ollama
-docker-compose restart coding-agent
+docker compose restart ollama
+docker compose restart coding-agent
 ```
 
 ### 문제 3: 포트 충돌
@@ -284,8 +284,8 @@ docker stats
 git pull origin main
 
 # 재빌드 및 재시작
-docker-compose build coding-agent
-docker-compose up -d coding-agent
+docker compose build coding-agent
+docker compose up -d coding-agent
 ```
 
 ### 모델 업데이트
@@ -294,7 +294,7 @@ docker-compose up -d coding-agent
 docker exec -it ollama ollama pull qwen2.5-coder:latest
 
 # 환경 변수 업데이트 후 재시작
-docker-compose restart coding-agent
+docker compose restart coding-agent
 ```
 
 ---
@@ -378,7 +378,7 @@ redis:
 ## 📞 지원
 
 문제가 발생하면:
-1. 로그 확인: `docker-compose logs`
+1. 로그 확인: `docker compose logs`
 2. GitHub Issues에 보고
 3. [README_AGENT.md](./README_AGENT.md) 참조
 

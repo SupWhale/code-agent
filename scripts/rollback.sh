@@ -41,7 +41,7 @@ if [[ $REPLY == "1" ]]; then
 
         # 현재 컨테이너 중지
         cd deployment
-        docker-compose down
+        docker compose down
 
         # Git 롤백
         cd ..
@@ -49,8 +49,8 @@ if [[ $REPLY == "1" ]]; then
 
         # 컨테이너 재시작
         cd deployment
-        docker-compose build coding-agent
-        docker-compose up -d
+        docker compose build coding-agent
+        docker compose up -d
 
         sleep 10
     "
@@ -80,7 +80,7 @@ elif [[ $REPLY == "2" ]]; then
 
         # 현재 컨테이너 중지
         cd '${SERVER_PATH}/deployment'
-        docker-compose down
+        docker compose down
 
         # 백업 복원
         cd '${SERVER_PATH}'
@@ -89,8 +89,8 @@ elif [[ $REPLY == "2" ]]; then
 
         # 컨테이너 재시작
         cd deployment
-        docker-compose build coding-agent
-        docker-compose up -d
+        docker compose build coding-agent
+        docker compose up -d
 
         sleep 10
     "
