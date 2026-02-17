@@ -334,24 +334,41 @@ function setupEventHandlers() {
 
 /**
  * Diff 표시 후 변경사항 적용
+ * 신규 파일이면 diff 없이 즉시 적용
  */
-async function showDiffAndApply(filePath: string, newContent: string): Promise<void> {
+async function showDiffAndApply(filePath: string, newContent: string, basePath?: string): Promise<void> {
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-    if (!workspaceFolder) {
+    const baseDir = basePath || workspaceFolder?.uri.fsPath;
+    if (!baseDir) {
         return;
     }
 
-    const fullPath = path.join(workspaceFolder.uri.fsPath, filePath);
+    const fullPath = path.join(baseDir, filePath);
     const uri = vscode.Uri.file(fullPath);
 
-    // 원본 파일 열기
-    const originalDoc = await vscode.workspace.openTextDocument(uri);
-    const originalContent = originalDoc.getText();
+    // 파일이 없으면 (신규 생성) diff 없이 바로 적용
+    let fileExists = false;
+    try {
+        await vscode.workspace.fs.stat(uri);
+        fileExists = true;
+    } catch {
+        fileExists = false;
+    }
 
-    // 임시 파일 생성 (변경된 내용)
+    if (!fileExists) {
+        const choice = await vscode.window.showQuickPick(
+            ['생성', '취소'],
+            { placeHolder: `새 파일을 생성하시겠습니까? ${filePath}` }
+        );
+        if (choice === '생성') {
+            await applyChanges(filePath, newContent, baseDir);
+        }
+        return;
+    }
+
+    // 기존 파일: diff 표시
     const tempUri = uri.with({ scheme: 'untitled', path: uri.path + '.ai-modified' });
 
-    // Diff 표시
     await vscode.commands.executeCommand(
         'vscode.diff',
         uri,
@@ -360,7 +377,6 @@ async function showDiffAndApply(filePath: string, newContent: string): Promise<v
     );
 
     // 임시 문서에 새 내용 쓰기
-    const tempDoc = await vscode.workspace.openTextDocument(tempUri);
     const edit = new vscode.WorkspaceEdit();
     edit.insert(tempUri, new vscode.Position(0, 0), newContent);
     await vscode.workspace.applyEdit(edit);
@@ -372,35 +388,30 @@ async function showDiffAndApply(filePath: string, newContent: string): Promise<v
     );
 
     if (choice === '적용') {
-        await applyChanges(filePath, newContent);
+        await applyChanges(filePath, newContent, baseDir);
     }
 }
 
 /**
- * 변경사항 적용
+ * 변경사항 적용 (신규 파일 생성 포함)
  */
-async function applyChanges(filePath: string, newContent: string): Promise<void> {
+async function applyChanges(filePath: string, newContent: string, basePath?: string): Promise<void> {
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-    if (!workspaceFolder) {
+    const baseDir = basePath || workspaceFolder?.uri.fsPath;
+    if (!baseDir) {
         return;
     }
 
-    const fullPath = path.join(workspaceFolder.uri.fsPath, filePath);
+    const fullPath = path.join(baseDir, filePath);
     const uri = vscode.Uri.file(fullPath);
+    const contentBytes = Buffer.from(newContent, 'utf8');
 
-    // 파일 업데이트
-    const edit = new vscode.WorkspaceEdit();
-    const document = await vscode.workspace.openTextDocument(uri);
-    const fullRange = new vscode.Range(
-        document.positionAt(0),
-        document.positionAt(document.getText().length)
-    );
+    // 디렉토리 생성 (없으면)
+    const dirUri = vscode.Uri.file(path.dirname(fullPath));
+    await vscode.workspace.fs.createDirectory(dirUri);
 
-    edit.replace(uri, fullRange, newContent);
-    await vscode.workspace.applyEdit(edit);
+    // 파일 쓰기 (신규 생성 + 덮어쓰기 모두 처리)
+    await vscode.workspace.fs.writeFile(uri, contentBytes);
 
-    // 저장
-    await document.save();
-
-    vscode.window.showInformationMessage(`✅ ${path.basename(filePath)} 수정 완료!`);
+    vscode.window.showInformationMessage(`✅ ${path.basename(filePath)} 저장 완료!`);
 }

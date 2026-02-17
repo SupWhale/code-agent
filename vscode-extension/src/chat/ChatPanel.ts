@@ -55,14 +55,15 @@ export class ChatPanel {
 
         // Listen for AI responses
         this._connection.on('file_changed', (message) => {
+            const fileContent = message.content || message.new_content || '';
             const aiMessage: Message = {
                 id: this._generateId(),
                 role: 'assistant',
-                content: `파일이 변경되었습니다: ${message.path}\n\n\`\`\`${message.language || 'text'}\n${message.new_content}\n\`\`\``,
+                content: `파일이 변경되었습니다: ${message.path}\n\n\`\`\`${message.language || 'text'}\n${fileContent}\n\`\`\``,
                 timestamp: new Date(),
                 codeBlocks: [{
                     language: message.language || 'text',
-                    code: message.new_content
+                    code: fileContent
                 }]
             };
             this._messages.push(aiMessage);
