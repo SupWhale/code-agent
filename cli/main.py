@@ -268,10 +268,17 @@ def session_info():
 
 
 @session_app.command("delete")
-def session_delete():
-    """현재 세션 삭제"""
-    sid = _require_session()
+def session_delete(
+    session_id: Optional[str] = typer.Argument(None, help="삭제할 세션 ID (생략 시 현재 세션)"),
+):
+    """세션 삭제 (생략 시 현재 세션, ID 지정 시 해당 세션)"""
     client = _client()
+    sid = session_id or config.get("session_id")
+
+    if not sid:
+        err_console.print("[!] 세션이 없습니다.")
+        raise typer.Exit(1)
+
     confirm = Prompt.ask(f"세션 '{sid}' 를 삭제하시겠습니까?", choices=["y", "n"], default="n")
     if confirm != "y":
         console.print("[dim]취소됨[/]")
@@ -281,9 +288,43 @@ def session_delete():
     except Exception as e:
         err_console.print(f"[!] 삭제 실패: {e}")
         raise typer.Exit(1)
+
+    if sid == config.get("session_id"):
+        config.set_value("session_id", None)
+        config.set_value("workspace_path", None)
+    console.print(f"[green]세션 삭제 완료[/]: {sid}")
+
+
+@session_app.command("delete-all")
+def session_delete_all():
+    """서버의 전체 세션 삭제"""
+    client = _client()
+
+    try:
+        sessions = client.list_sessions()
+    except Exception as e:
+        err_console.print(f"[!] 세션 목록 조회 실패: {e}")
+        raise typer.Exit(1)
+
+    if not sessions:
+        console.print("[dim]삭제할 세션이 없습니다.[/]")
+        return
+
+    console.print(f"[yellow]서버에 {len(sessions)}개 세션이 있습니다.[/]")
+    confirm = Prompt.ask("전체 세션을 삭제하시겠습니까?", choices=["y", "n"], default="n")
+    if confirm != "y":
+        console.print("[dim]취소됨[/]")
+        return
+
+    try:
+        deleted = client.delete_all_sessions()
+    except Exception as e:
+        err_console.print(f"[!] 삭제 실패: {e}")
+        raise typer.Exit(1)
+
     config.set_value("session_id", None)
     config.set_value("workspace_path", None)
-    console.print("[green]세션 삭제 완료[/]")
+    console.print(f"[green]전체 세션 삭제 완료[/] — {deleted}개 삭제됨")
 
 
 # ── Files ──────────────────────────────────────────────────────────────────
@@ -444,7 +485,90 @@ def files_sync(
         err_console.print(f"[!] 동기화 실패: {e}")
         raise typer.Exit(1)
 
+    config.set_value("local_workspace", str(root))
     console.print(f"[green]동기화 완료[/] — {result['uploaded_count']}개 파일 전송 (워크스페이스 총 {result['total_files']}개)")
+
+
+@files_app.command("pull")
+def files_pull(
+    remote_path: Optional[str] = typer.Argument(None, help="가져올 서버 파일 경로 (생략 시 전체)"),
+    output: Optional[str] = typer.Option(None, "--out", "-o", help="저장할 로컬 경로 (기본: 현재 디렉토리)"),
+    overwrite: bool = typer.Option(False, "--overwrite", is_flag=True, help="기존 파일 덮어쓰기"),
+):
+    """서버 워크스페이스의 파일을 로컬로 가져옵니다.
+
+    특정 파일 하나 또는 워크스페이스 전체를 다운로드합니다.
+    """
+    sid = _require_session()
+    client = _client()
+    out_dir = Path(output).resolve() if output else Path.cwd()
+
+    # 단일 파일
+    if remote_path:
+        try:
+            content = client.get_file(sid, remote_path)
+        except Exception as e:
+            err_console.print(f"[!] 파일 조회 실패: {e}")
+            raise typer.Exit(1)
+
+        if content is None:
+            err_console.print(f"[!] 파일을 찾을 수 없습니다: {remote_path}")
+            raise typer.Exit(1)
+
+        local_path = out_dir / remote_path
+        if local_path.exists() and not overwrite:
+            confirm = Prompt.ask(f"'{local_path}' 이(가) 이미 있습니다. 덮어쓰시겠습니까?", choices=["y", "n"], default="n")
+            if confirm != "y":
+                console.print("[dim]취소됨[/]")
+                return
+
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        local_path.write_text(content, encoding="utf-8")
+        console.print(f"[green]저장 완료[/] → {local_path}")
+        return
+
+    # 전체 파일
+    try:
+        file_list = client.list_files(sid)
+    except Exception as e:
+        err_console.print(f"[!] 파일 목록 조회 실패: {e}")
+        raise typer.Exit(1)
+
+    if not file_list:
+        console.print("[dim]서버에 파일이 없습니다.[/]")
+        return
+
+    console.print(_build_file_tree(file_list, label=f"workspace → {out_dir}"))
+    console.print(f"\n[dim]{len(file_list)}개 파일[/]")
+
+    confirm = Prompt.ask(f"\n로컬 '{out_dir}' 에 {len(file_list)}개 파일을 저장하시겠습니까?", choices=["y", "n"], default="y")
+    if confirm != "y":
+        console.print("[dim]취소됨[/]")
+        return
+
+    saved, skipped = 0, 0
+    for path in file_list:
+        try:
+            content = client.get_file(sid, path)
+        except Exception:
+            skipped += 1
+            continue
+
+        if content is None:
+            skipped += 1
+            continue
+
+        local_path = out_dir / path
+        if local_path.exists() and not overwrite:
+            skipped += 1
+            console.print(f"[dim]  건너뜀 (이미 있음): {path}[/]")
+            continue
+
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        local_path.write_text(content, encoding="utf-8")
+        saved += 1
+
+    console.print(f"\n[green]완료[/] — {saved}개 저장" + (f", {skipped}개 건너뜀" if skipped else ""))
 
 
 # ── File scan helpers ──────────────────────────────────────────────────────────
@@ -612,7 +736,20 @@ def _render_event(msg: dict):
             console.print(f"\n[red bold]✗ 작업 실패[/]: {event.get('error')}")
 
     elif mtype == "file_changed":
-        console.print(f"[dim]  ↺ 파일 변경: {msg.get('path')}[/]")
+        path = msg.get("path", "")
+        content = msg.get("content")
+        local_ws = config.get("local_workspace")
+
+        if content is not None and local_ws:
+            local_path = Path(local_ws) / path
+            try:
+                local_path.parent.mkdir(parents=True, exist_ok=True)
+                local_path.write_text(content, encoding="utf-8")
+                console.print(f"[green]  ↺ 로컬 저장[/]: {local_path}")
+            except Exception as e:
+                console.print(f"[yellow]  ↺ 파일 변경 (로컬 저장 실패: {e})[/]: {path}")
+        else:
+            console.print(f"[dim]  ↺ 파일 변경: {path}[/]")
 
     elif mtype == "error":
         console.print(f"[red][!] {msg.get('error')}[/]")
@@ -679,6 +816,37 @@ def _handle_slash_command(stripped: str, sid: str):
         console.print(tree)
         console.print(f"[dim]총 {count}개 파일[/]")
 
+    elif cmd == "pull":
+        remote = parts[1] if len(parts) > 1 else None
+        out_dir = Path.cwd()
+        if remote:
+            try:
+                content = client.get_file(sid, remote)
+                if content:
+                    local_path = out_dir / remote
+                    local_path.parent.mkdir(parents=True, exist_ok=True)
+                    local_path.write_text(content, encoding="utf-8")
+                    console.print(f"[green]저장 완료[/] → {local_path}")
+                else:
+                    console.print("[red]파일 없음[/]")
+            except Exception as e:
+                err_console.print(f"[!] {e}")
+        else:
+            try:
+                file_list = client.list_files(sid)
+                console.print(f"[dim]{len(file_list)}개 파일 다운로드 중...[/]")
+                saved = 0
+                for path in file_list:
+                    content = client.get_file(sid, path)
+                    if content:
+                        local_path = out_dir / path
+                        local_path.parent.mkdir(parents=True, exist_ok=True)
+                        local_path.write_text(content, encoding="utf-8")
+                        saved += 1
+                console.print(f"[green]완료[/] — {saved}개 저장 → {out_dir}")
+            except Exception as e:
+                err_console.print(f"[!] {e}")
+
     elif cmd == "sync":
         directory = parts[1] if len(parts) > 1 else "."
         root = Path(directory).resolve()
@@ -715,9 +883,10 @@ def _handle_slash_command(stripped: str, sid: str):
     elif cmd == "help":
         console.print(
             "[dim]/files[/]             — 서버 워크스페이스 파일 목록\n"
-            "[dim]/local ls [dir][/]    — 로컬 파일 구조 트리\n"
-            "[dim]/sync [dir][/]        — 로컬 디렉토리 → 서버 동기화\n"
             "[dim]/show <path>[/]       — 서버 파일 내용\n"
+            "[dim]/local ls [dir][/]    — 로컬 파일 구조 트리\n"
+            "[dim]/sync [dir][/]        — 로컬 → 서버 동기화\n"
+            "[dim]/pull [path][/]       — 서버 → 로컬 저장 (생략 시 전체)\n"
             "[dim]/status[/]            — 서버 상태\n"
             "[dim]exit[/]               — 종료"
         )

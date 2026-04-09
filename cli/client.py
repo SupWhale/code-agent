@@ -48,6 +48,11 @@ class AgentClient:
         resp = httpx.delete(f"{self.server_url}/api/v1/vscode/session/{session_id}", timeout=5)
         resp.raise_for_status()
 
+    def delete_all_sessions(self) -> int:
+        resp = httpx.delete(f"{self.server_url}/api/v1/vscode/sessions", timeout=10)
+        resp.raise_for_status()
+        return resp.json().get("deleted", 0)
+
     # ── Files ────────────────────────────────────────────────────────────────
 
     def list_files(self, session_id: str) -> list[dict]:

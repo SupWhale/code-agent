@@ -222,6 +222,18 @@ def init_vscode_router(
             "total": len(sessions),
         }
 
+    @router.delete("/sessions", status_code=200)
+    async def delete_all_sessions():
+        """
+        전체 세션 삭제
+        """
+        sessions = _session_manager.list_sessions()
+        deleted = 0
+        for s in sessions:
+            if _session_manager.delete_session(s.session_id):
+                deleted += 1
+        return {"deleted": deleted}
+
     @router.get("/sessions/stats")
     async def get_stats():
         """

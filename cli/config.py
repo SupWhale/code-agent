@@ -12,6 +12,7 @@ DEFAULTS = {
     "server_url": "http://192.168.0.149:8000",
     "session_id": None,
     "workspace_path": None,
+    "local_workspace": None,
 }
 
 
