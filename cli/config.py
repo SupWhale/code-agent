@@ -9,7 +9,7 @@ CONFIG_DIR = Path.home() / ".config" / "code-agent"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
 DEFAULTS = {
-    "server_url": "http://localhost:8000",
+    "server_url": "http://192.168.0.149:8000",
     "session_id": None,
     "workspace_path": None,
 }
