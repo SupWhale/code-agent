@@ -317,13 +317,12 @@ def init_vscode_router(
                             "event": event
                         })
 
-                        # 파일 변경/생성 이벤트 처리
+                        # 파일 변경/생성/삭제 이벤트 처리
                         if event.get("type") == "action_success":
                             action_type = event.get("tool")
                             if action_type in ("edit_file", "create_file"):
                                 file_path = event.get("params", {}).get("path")
                                 if file_path:
-                                    # 디스크에서 직접 읽어서 전송
                                     full_path = Path(session.workspace_path) / file_path
                                     try:
                                         if full_path.exists() and full_path.is_file():
@@ -335,6 +334,13 @@ def init_vscode_router(
                                             })
                                     except Exception as e:
                                         logger.warning(f"Failed to read file for sync: {file_path}: {e}")
+                            elif action_type == "delete_file":
+                                file_path = event.get("params", {}).get("path")
+                                if file_path:
+                                    await websocket.send_json({
+                                        "type": "file_deleted",
+                                        "path": file_path
+                                    })
 
                 elif message_type == "ping":
                     # 연결 유지용 ping

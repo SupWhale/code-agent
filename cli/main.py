@@ -735,6 +735,22 @@ def _render_event(msg: dict):
         elif etype == "task_failed":
             console.print(f"\n[red bold]✗ 작업 실패[/]: {event.get('error')}")
 
+    elif mtype == "file_deleted":
+        path = msg.get("path", "")
+        local_ws = config.get("local_workspace")
+        if local_ws:
+            local_path = Path(local_ws) / path
+            try:
+                if local_path.exists():
+                    local_path.unlink()
+                    console.print(f"[red]  🗑 로컬 삭제[/]: {local_path}")
+                else:
+                    console.print(f"[dim]  🗑 파일 삭제 (로컬 없음): {path}[/]")
+            except Exception as e:
+                console.print(f"[yellow]  🗑 파일 삭제 (로컬 삭제 실패: {e})[/]: {path}")
+        else:
+            console.print(f"[dim]  🗑 파일 삭제: {path}[/]")
+
     elif mtype == "file_changed":
         path = msg.get("path", "")
         content = msg.get("content")
