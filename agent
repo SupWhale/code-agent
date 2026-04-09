@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# =============================================================================
+# code-agent CLI 실행 파일
+# 처음 실행 시 자동으로 의존성을 설치하고 CLI를 시작합니다.
+# 사용법: ./agent [명령] [옵션]
+#   ./agent status
+#   ./agent session new
+#   ./agent chat
+#   ./agent ask "main.py 버그 수정해줘"
+# =============================================================================
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VENV_DIR="$SCRIPT_DIR/cli/.venv"
+REQUIREMENTS="$SCRIPT_DIR/cli/requirements.txt"
+MARKER="$VENV_DIR/.installed"
+
+# ── 색상 출력 ──────────────────────────────────────────────────────────────
+_info()  { echo -e "\033[1;34m[agent]\033[0m $*"; }
+_ok()    { echo -e "\033[1;32m[agent]\033[0m $*"; }
+_err()   { echo -e "\033[1;31m[agent]\033[0m $*" >&2; }
+
+# ── Python 확인 ────────────────────────────────────────────────────────────
+PYTHON=""
+for cmd in python3 python; do
+  if command -v "$cmd" &>/dev/null; then
+    ver=$("$cmd" -c "import sys; print(sys.version_info >= (3,9))" 2>/dev/null)
+    if [ "$ver" = "True" ]; then
+      PYTHON="$cmd"
+      break
+    fi
+  fi
+done
+
+if [ -z "$PYTHON" ]; then
+  _err "Python 3.9 이상이 필요합니다. https://python.org 에서 설치하세요."
+  exit 1
+fi
+
+# ── 초기 설치 (최초 1회) ───────────────────────────────────────────────────
+if [ ! -f "$MARKER" ]; then
+  _info "초기 설정 중 (최초 1회만 실행됩니다)..."
+
+  _info "가상환경 생성: $VENV_DIR"
+  "$PYTHON" -m venv "$VENV_DIR"
+
+  _info "의존성 설치 중..."
+  "$VENV_DIR/bin/pip" install --upgrade pip -q
+  "$VENV_DIR/bin/pip" install -r "$REQUIREMENTS" -q
+
+  touch "$MARKER"
+  _ok "설치 완료!"
+  echo ""
+fi
+
+# ── requirements.txt 변경 시 재설치 ────────────────────────────────────────
+if [ "$REQUIREMENTS" -nt "$MARKER" ]; then
+  _info "requirements.txt 변경 감지 — 의존성 재설치 중..."
+  "$VENV_DIR/bin/pip" install -r "$REQUIREMENTS" -q
+  touch "$MARKER"
+fi
+
+# ── CLI 실행 ───────────────────────────────────────────────────────────────
+cd "$SCRIPT_DIR"
+exec "$VENV_DIR/bin/python" -m cli.main "$@"

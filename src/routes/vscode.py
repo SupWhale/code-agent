@@ -201,6 +201,27 @@ def init_vscode_router(
             "size": len(content)
         }
 
+    @router.get("/sessions")
+    async def list_sessions():
+        """
+        전체 세션 목록 조회
+        """
+        sessions = _session_manager.list_sessions()
+        return {
+            "sessions": [
+                {
+                    "session_id": s.session_id,
+                    "workspace_path": str(s.workspace_path),
+                    "file_count": s.get_file_count(),
+                    "created_at": s.created_at.isoformat(),
+                    "last_activity": s.last_activity.isoformat(),
+                    "is_expired": s.is_expired(),
+                }
+                for s in sessions
+            ],
+            "total": len(sessions),
+        }
+
     @router.get("/sessions/stats")
     async def get_stats():
         """

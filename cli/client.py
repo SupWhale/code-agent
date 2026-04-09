@@ -32,6 +32,11 @@ class AgentClient:
         resp.raise_for_status()
         return resp.json()
 
+    def list_sessions(self) -> list[dict]:
+        resp = httpx.get(f"{self.server_url}/api/v1/vscode/sessions", timeout=5)
+        resp.raise_for_status()
+        return resp.json().get("sessions", [])
+
     def get_session(self, session_id: str) -> Optional[dict]:
         resp = httpx.get(f"{self.server_url}/api/v1/vscode/session/{session_id}", timeout=5)
         if resp.status_code == 404:

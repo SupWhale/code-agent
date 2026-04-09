@@ -127,6 +127,98 @@ def status():
 
 # ── Session ───────────────────────────────────────────────────────────────────
 
+@session_app.command("list")
+def session_list():
+    """서버의 전체 세션 목록 조회"""
+    client = _client()
+    try:
+        sessions = client.list_sessions()
+    except Exception as e:
+        err_console.print(f"[!] 세션 목록 조회 실패: {e}")
+        raise typer.Exit(1)
+
+    if not sessions:
+        console.print("[dim]세션 없음[/]")
+        return
+
+    current_sid = config.get("session_id")
+    table = Table(header_style="bold", show_lines=True)
+    table.add_column("", width=2)
+    table.add_column("세션 ID")
+    table.add_column("파일 수", justify="right")
+    table.add_column("마지막 활동")
+    table.add_column("상태")
+
+    for s in sessions:
+        is_current = s["session_id"] == current_sid
+        marker = "[green]▶[/]" if is_current else ""
+        expired = s.get("is_expired", False)
+        status = "[red]만료[/]" if expired else "[green]활성[/]"
+        sid_display = f"[bold]{s['session_id']}[/]" if is_current else s["session_id"]
+        table.add_row(marker, sid_display, str(s["file_count"]), s["last_activity"][:19], status)
+
+    console.print(table)
+    console.print(f"[dim]총 {len(sessions)}개 세션 | 현재: {current_sid or '없음'}[/]")
+
+
+@session_app.command("select")
+def session_select(session_id: Optional[str] = typer.Argument(None, help="선택할 세션 ID (생략 시 대화형 선택)")):
+    """기존 세션으로 전환"""
+    client = _client()
+    try:
+        sessions = client.list_sessions()
+    except Exception as e:
+        err_console.print(f"[!] 세션 목록 조회 실패: {e}")
+        raise typer.Exit(1)
+
+    if not sessions:
+        err_console.print("[!] 서버에 세션이 없습니다. 'agent session new' 로 생성하세요.")
+        raise typer.Exit(1)
+
+    # 세션 ID를 직접 넘긴 경우
+    if session_id:
+        match = next((s for s in sessions if s["session_id"] == session_id), None)
+        if not match:
+            err_console.print(f"[!] 세션 '{session_id}' 를 찾을 수 없습니다.")
+            raise typer.Exit(1)
+        _switch_session(match)
+        return
+
+    # 대화형 선택
+    current_sid = config.get("session_id")
+    console.print("\n[bold]세션을 선택하세요[/]\n")
+    for i, s in enumerate(sessions):
+        is_current = s["session_id"] == current_sid
+        expired = s.get("is_expired", False)
+        status = "[red]만료[/]" if expired else "[green]활성[/]"
+        marker = " [green](현재)[/]" if is_current else ""
+        console.print(f"  [cyan]{i + 1}[/].  {s['session_id']}  파일:{s['file_count']}  {status}{marker}")
+
+    console.print()
+    raw = Prompt.ask("번호 입력", default="1")
+    try:
+        idx = int(raw) - 1
+        if not (0 <= idx < len(sessions)):
+            raise ValueError
+    except ValueError:
+        err_console.print("[!] 올바른 번호를 입력하세요.")
+        raise typer.Exit(1)
+
+    _switch_session(sessions[idx])
+
+
+def _switch_session(sess: dict):
+    config.set_value("session_id", sess["session_id"])
+    config.set_value("workspace_path", sess["workspace_path"])
+    console.print(Panel(
+        f"[bold green]세션 전환 완료[/]\n\n"
+        f"ID        : [cyan]{sess['session_id']}[/]\n"
+        f"workspace : {sess['workspace_path']}\n"
+        f"파일 수   : {sess['file_count']}",
+        border_style="green",
+    ))
+
+
 @session_app.command("new")
 def session_new(session_id: Optional[str] = typer.Argument(None, help="세션 ID (생략 시 자동)")):
     """새 세션 생성"""
@@ -279,6 +371,180 @@ def files_upload(
     console.print(f"[green]업로드 완료[/] — {result['uploaded_count']}개 파일 (총 {result['total_files']}개)")
 
 
+@files_app.command("local-ls")
+def files_local_ls(
+    directory: Optional[str] = typer.Argument(None, help="탐색할 로컬 디렉토리 (기본: 현재 디렉토리)"),
+    max_depth: int = typer.Option(4, "--depth", help="최대 탐색 깊이"),
+):
+    """로컬 파일 구조를 트리로 출력 (서버 업로드 없이)"""
+    root = Path(directory).resolve() if directory else Path.cwd()
+    if not root.exists():
+        err_console.print(f"[!] 경로 없음: {root}")
+        raise typer.Exit(1)
+
+    ignore = _load_gitignore(root)
+    tree = Tree(f":open_file_folder: [bold]{root}[/]")
+    count = _fill_local_tree(tree, root, root, ignore, 0, max_depth)
+    console.print(tree)
+    console.print(f"\n[dim]총 {count}개 파일[/]")
+
+
+@files_app.command("sync")
+def files_sync(
+    directory: Optional[str] = typer.Argument(None, help="동기화할 로컬 디렉토리 (기본: 현재 디렉토리)"),
+    max_size_kb: int = typer.Option(500, "--max-size", help="파일 최대 크기 (KB)"),
+    dry_run: bool = typer.Option(False, "--dry-run", is_flag=True, help="실제 전송 없이 대상 파일만 출력"),
+):
+    """로컬 디렉토리 전체를 서버 워크스페이스에 동기화
+
+    .gitignore, 바이너리 파일, 대용량 파일은 자동으로 제외됩니다.
+    """
+    sid = _require_session()
+    root = Path(directory).resolve() if directory else Path.cwd()
+    if not root.exists():
+        err_console.print(f"[!] 경로 없음: {root}")
+        raise typer.Exit(1)
+
+    ignore = _load_gitignore(root)
+    candidates = _collect_files(root, root, ignore, max_size_kb * 1024)
+
+    if not candidates:
+        console.print("[dim]전송할 파일이 없습니다.[/]")
+        return
+
+    # 미리보기
+    tree = Tree(f":open_file_folder: [bold]{root}[/]")
+    for rel, _ in candidates:
+        parts = Path(rel).parts
+        node = tree
+        dirs: dict = {}
+        for i, part in enumerate(parts[:-1]):
+            key = "/".join(parts[: i + 1])
+            if key not in dirs:
+                dirs[key] = node.add(f":file_folder: [dim]{part}[/]")
+            node = dirs[key]
+        node.add(f":page_facing_up: {parts[-1]}")
+    console.print(tree)
+    console.print(f"\n[dim]{len(candidates)}개 파일 — 최대 {max_size_kb}KB 이하[/]")
+
+    if dry_run:
+        console.print("[yellow]--dry-run: 실제 전송 없음[/]")
+        return
+
+    confirm = Prompt.ask(f"\n서버에 {len(candidates)}개 파일을 동기화하시겠습니까?", choices=["y", "n"], default="y")
+    if confirm != "y":
+        console.print("[dim]취소됨[/]")
+        return
+
+    files_payload = [{"path": rel, "content": content} for rel, content in candidates]
+    client = _client()
+    try:
+        result = client.upload_files(sid, files_payload)
+    except Exception as e:
+        err_console.print(f"[!] 동기화 실패: {e}")
+        raise typer.Exit(1)
+
+    console.print(f"[green]동기화 완료[/] — {result['uploaded_count']}개 파일 전송 (워크스페이스 총 {result['total_files']}개)")
+
+
+# ── File scan helpers ──────────────────────────────────────────────────────────
+
+_BINARY_EXTENSIONS = {
+    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".svg",
+    ".pdf", ".zip", ".tar", ".gz", ".bz2", ".xz", ".7z",
+    ".exe", ".bin", ".so", ".dylib", ".dll", ".o", ".a",
+    ".mp3", ".mp4", ".mov", ".avi", ".mkv",
+    ".pyc", ".pyo", ".class",
+    ".woff", ".woff2", ".ttf", ".eot",
+}
+
+_DEFAULT_IGNORE = {
+    ".git", ".venv", "venv", "__pycache__", "node_modules",
+    ".pytest_cache", ".mypy_cache", "dist", "build", ".next",
+    ".DS_Store", "*.egg-info",
+}
+
+
+def _load_gitignore(root: Path) -> List[str]:
+    """루트의 .gitignore 패턴을 읽어 반환"""
+    patterns: List[str] = []
+    gi = root / ".gitignore"
+    if gi.exists():
+        for line in gi.read_text(errors="replace").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#"):
+                patterns.append(line)
+    return patterns
+
+
+def _is_ignored(rel: str, name: str, patterns: List[str]) -> bool:
+    """이름 기반 단순 gitignore 매칭"""
+    import fnmatch
+    if name in _DEFAULT_IGNORE:
+        return True
+    for pat in patterns:
+        pat_clean = pat.rstrip("/")
+        if fnmatch.fnmatch(name, pat_clean):
+            return True
+        if fnmatch.fnmatch(rel, pat_clean):
+            return True
+    return False
+
+
+def _collect_files(
+    root: Path,
+    current: Path,
+    patterns: List[str],
+    max_bytes: int,
+) -> List[tuple]:
+    """재귀적으로 텍스트 파일 수집 → [(rel_path, content), ...]"""
+    results = []
+    try:
+        entries = sorted(current.iterdir(), key=lambda p: (p.is_file(), p.name))
+    except PermissionError:
+        return results
+
+    for entry in entries:
+        rel = str(entry.relative_to(root))
+        if _is_ignored(rel, entry.name, patterns):
+            continue
+        if entry.is_dir():
+            results.extend(_collect_files(root, entry, patterns, max_bytes))
+        elif entry.is_file():
+            if entry.suffix.lower() in _BINARY_EXTENSIONS:
+                continue
+            if entry.stat().st_size > max_bytes:
+                continue
+            try:
+                content = entry.read_text(encoding="utf-8", errors="strict")
+                results.append((rel, content))
+            except (UnicodeDecodeError, PermissionError):
+                pass  # 바이너리 또는 권한 없음 — 스킵
+    return results
+
+
+def _fill_local_tree(tree: Tree, root: Path, current: Path, patterns: List[str], depth: int, max_depth: int) -> int:
+    """Rich Tree에 로컬 파일 구조 채우기, 파일 수 반환"""
+    if depth >= max_depth:
+        return 0
+    count = 0
+    try:
+        entries = sorted(current.iterdir(), key=lambda p: (p.is_file(), p.name))
+    except PermissionError:
+        return 0
+    for entry in entries:
+        rel = str(entry.relative_to(root))
+        if _is_ignored(rel, entry.name, patterns):
+            continue
+        if entry.is_dir():
+            branch = tree.add(f":file_folder: [dim]{entry.name}/[/]")
+            count += _fill_local_tree(branch, root, entry, patterns, depth + 1, max_depth)
+        else:
+            tree.add(f":page_facing_up: {entry.name}")
+            count += 1
+    return count
+
+
 # ── Ask (one-shot) ────────────────────────────────────────────────────────────
 
 @app.command()
@@ -404,6 +670,31 @@ def _handle_slash_command(stripped: str, sid: str):
         except Exception as e:
             err_console.print(f"[!] {e}")
 
+    elif cmd == "local" and len(parts) > 1 and parts[1] == "ls":
+        directory = parts[2] if len(parts) > 2 else "."
+        root = Path(directory).resolve()
+        ignore = _load_gitignore(root)
+        tree = Tree(f":open_file_folder: [bold]{root}[/]")
+        count = _fill_local_tree(tree, root, root, ignore, 0, 4)
+        console.print(tree)
+        console.print(f"[dim]총 {count}개 파일[/]")
+
+    elif cmd == "sync":
+        directory = parts[1] if len(parts) > 1 else "."
+        root = Path(directory).resolve()
+        ignore = _load_gitignore(root)
+        candidates = _collect_files(root, root, ignore, 500 * 1024)
+        if not candidates:
+            console.print("[dim]전송할 파일 없음[/]")
+        else:
+            console.print(f"[dim]{len(candidates)}개 파일 동기화 중...[/]")
+            payload = [{"path": r, "content": c} for r, c in candidates]
+            try:
+                result = client.upload_files(sid, payload)
+                console.print(f"[green]동기화 완료[/] — {result['uploaded_count']}개 파일")
+            except Exception as e:
+                err_console.print(f"[!] {e}")
+
     elif cmd == "show" and len(parts) > 1:
         try:
             content = client.get_file(sid, parts[1])
@@ -423,10 +714,12 @@ def _handle_slash_command(stripped: str, sid: str):
 
     elif cmd == "help":
         console.print(
-            "[dim]/files[/]        — 파일 목록\n"
-            "[dim]/show <path>[/]  — 파일 내용\n"
-            "[dim]/status[/]       — 서버 상태\n"
-            "[dim]exit[/]          — 종료"
+            "[dim]/files[/]             — 서버 워크스페이스 파일 목록\n"
+            "[dim]/local ls [dir][/]    — 로컬 파일 구조 트리\n"
+            "[dim]/sync [dir][/]        — 로컬 디렉토리 → 서버 동기화\n"
+            "[dim]/show <path>[/]       — 서버 파일 내용\n"
+            "[dim]/status[/]            — 서버 상태\n"
+            "[dim]exit[/]               — 종료"
         )
     else:
         console.print(f"[yellow]알 수 없는 커맨드: /{cmd}[/]  (도움말: /help)")
