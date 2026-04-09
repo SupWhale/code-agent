@@ -7,14 +7,7 @@ services:
     ports:
       - "11434:11434"
     volumes:
-      - ./models:/root/.ollama
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+      - ollama-models:/root/.ollama
     restart: unless-stopped
 
   coding-agent:
@@ -26,6 +19,7 @@ services:
       - "8000:8000"
     volumes:
       - ../src:/app/src
+      - ../prompts:/app/prompts
       - ../workspace:/workspace
     environment:
       - OLLAMA_HOST=http://ollama:11434
@@ -37,6 +31,9 @@ services:
     depends_on:
       - ollama
     restart: unless-stopped
+
+volumes:
+  ollama-models:
 
 networks:
   default:

@@ -14,8 +14,9 @@ COPY requirements.txt .
 COPY requirements-dev.txt .
 RUN pip install --no-cache-dir -r requirements-dev.txt
 
-# 소스 코드 복사
+# 소스 코드 및 프롬프트 복사
 COPY src/ ./src/
+COPY prompts/ ./prompts/
 
 # 환경 변수
 ENV PYTHONUNBUFFERED=1
