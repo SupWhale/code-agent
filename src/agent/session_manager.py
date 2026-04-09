@@ -143,6 +143,9 @@ class SessionManager:
         """
         세션 조회
 
+        메모리에 없으면 디스크의 workspace 디렉토리를 확인해 세션을 복원합니다.
+        이를 통해 다른 워커가 생성한 세션도 정상적으로 처리할 수 있습니다.
+
         Args:
             session_id: 세션 ID
 
@@ -152,7 +155,33 @@ class SessionManager:
         session = self.sessions.get(session_id)
         if session:
             session.update_activity()
-        return session
+            return session
+
+        # 메모리에 없으면 디스크에서 복원 시도
+        workspace_path = self.base_workspace_path / session_id
+        if workspace_path.is_dir():
+            session = ClientSession(
+                session_id=session_id,
+                workspace_path=workspace_path,
+            )
+            # 디스크에 있는 파일을 메모리 캐시에 로드
+            for file_path in workspace_path.rglob("*"):
+                if file_path.is_file():
+                    rel = str(file_path.relative_to(workspace_path))
+                    try:
+                        content = file_path.read_text(encoding="utf-8")
+                        session.files[rel] = FileInfo(
+                            path=rel,
+                            content=content,
+                            last_modified=datetime.fromtimestamp(file_path.stat().st_mtime),
+                        )
+                    except Exception:
+                        pass
+            self.sessions[session_id] = session
+            logger.info(f"Session restored from disk: {session_id} ({session.get_file_count()} files)")
+            return session
+
+        return None
 
     def delete_session(self, session_id: str) -> bool:
         """
@@ -207,7 +236,12 @@ class SessionManager:
         return len(expired_sessions)
 
     def list_sessions(self) -> List[ClientSession]:
-        """모든 세션 목록"""
+        """모든 세션 목록 — 디스크의 세션 디렉토리도 포함"""
+        # 디스크에 있는 세션 디렉토리를 순회해 메모리에 없는 것도 복원
+        if self.base_workspace_path.is_dir():
+            for workspace_path in self.base_workspace_path.iterdir():
+                if workspace_path.is_dir() and workspace_path.name not in self.sessions:
+                    self.get_session(workspace_path.name)  # 복원 로직 재사용
         return list(self.sessions.values())
 
     def get_stats(self) -> Dict:
@@ -282,7 +316,21 @@ class SessionManager:
             logger.error(f"Session not found: {session_id}")
             return None
 
-        return session.get_file(file_path)
+        # 메모리 캐시 우선, 없으면 디스크에서 직접 읽기
+        content = session.get_file(file_path)
+        if content is None:
+            full_path = session.workspace_path / file_path
+            if full_path.is_file():
+                try:
+                    content = full_path.read_text(encoding="utf-8")
+                    session.files[file_path] = FileInfo(
+                        path=file_path,
+                        content=content,
+                        last_modified=datetime.fromtimestamp(full_path.stat().st_mtime),
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to read file from disk: {e}")
+        return content
 
     def __repr__(self) -> str:
         stats = self.get_stats()
