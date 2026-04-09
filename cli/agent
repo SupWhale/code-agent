@@ -1,0 +1,2 @@
+#!/bin/bash
+exec "/Users/jhk26/code-agent/code-agent/cli/.venv/bin/python" -m cli.main "$@"
