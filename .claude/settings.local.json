@@ -4,7 +4,9 @@
       "Bash(python -m pytest:*)",
       "Bash(pytest:*)",
       "Bash(npm:*)",
-      "Bash(\"/c/Program Files/nodejs/node.exe\" ./node_modules/typescript/bin/tsc -p .)"
+      "Bash(\"/c/Program Files/nodejs/node.exe\" ./node_modules/typescript/bin/tsc -p .)",
+      "Bash(cat /Users/jhk26/code-agent/code-agent/prompts/*)",
+      "Bash(wc -l /Users/jhk26/code-agent/code-agent/src/main.py /Users/jhk26/code-agent/code-agent/src/agent/*.py /Users/jhk26/code-agent/code-agent/src/routes/*.py)"
     ]
   }
 }

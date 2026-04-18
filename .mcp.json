@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "code-agent": {
+      "command": "python",
+      "args": ["-m", "src.mcp_server"],
+      "cwd": "/Users/jhk26/code-agent/code-agent",
+      "env": {
+        "WORKSPACE_PATH": "/Users/jhk26/code-agent/code-agent"
+      }
+    }
+  }
+}
