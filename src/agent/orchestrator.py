@@ -100,7 +100,7 @@ class AgentOrchestrator:
                 }
 
                 try:
-                    agent_response = self.llm.get_next_actions(
+                    agent_response = await self.llm.get_next_actions_async(
                         conversation_history=memory.get_history(),
                         workspace_path=workspace_path
                     )

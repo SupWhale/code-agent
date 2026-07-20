@@ -193,7 +193,8 @@ class SessionManager:
         Returns:
             삭제 성공 여부
         """
-        session = self.sessions.get(session_id)
+        # 메모리에 없어도 디스크에 workspace가 남아 있으면 복원 후 삭제
+        session = self.get_session(session_id)
         if not session:
             return False
 

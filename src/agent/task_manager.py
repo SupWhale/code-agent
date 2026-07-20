@@ -128,6 +128,7 @@ class TaskManager:
             if task.status == TaskStatus.RUNNING:
                 raise ValueError(f"Task {task_id} is already running")
 
+            task.start()
             logger.info(f"Starting task execution: {task_id}")
 
             # 오케스트레이터에게 작업 위임
@@ -141,10 +142,11 @@ class TaskManager:
                     yield event
 
                     # task_completed/failed 이벤트로 상태 동기화
+                    # (orchestrator 이벤트는 result를 summary.result에 담아 보냄)
                     if event["type"] == "task_completed":
-                        task.complete(event.get("result", {}))
+                        task.complete(event.get("summary", {}).get("result") or {})
                     elif event["type"] == "task_failed":
-                        task.fail(event["error"])
+                        task.fail(event.get("error", "Unknown error"))
 
             except Exception as e:
                 logger.error(f"Task execution failed: {task_id}, error: {e}")

@@ -156,13 +156,14 @@ class ProjectAnalysisRequest(BaseModel):
 
 # Ollama client
 client = ollama.Client(host=OLLAMA_HOST)
+async_client = ollama.AsyncClient(host=OLLAMA_HOST)
 
 
 def validate_path(path: str) -> Path:
     """경로 검증 및 정규화 (경로 탐색 공격 방지)"""
     try:
         full_path = (WORKSPACE_PATH / path.lstrip("/")).resolve()
-        if not str(full_path).startswith(str(WORKSPACE_PATH)):
+        if not full_path.is_relative_to(WORKSPACE_PATH):
             raise ValueError("경로가 워크스페이스 밖을 벗어났습니다")
         return full_path
     except Exception as e:
@@ -207,8 +208,8 @@ async def root():
 async def health_check():
     """헬스체크 - Ollama 연결 확인"""
     try:
-        # Ollama 서버 연결 확인
-        models = client.list()
+        # Ollama 서버 연결 확인 (이벤트 루프 블로킹 방지)
+        models = await asyncio.to_thread(client.list)
 
         # 모델이 다운로드되어 있는지 확인
         model_available = any(MODEL_NAME in model.get("name", "") for model in models.get("models", []))
@@ -248,19 +249,14 @@ async def generate_code(request: CodeGenerationRequest):
             # 스트리밍 응답
             async def generate():
                 try:
-                    response = client.chat(
+                    response = await async_client.chat(
                         model=MODEL_NAME,
                         messages=[{"role": "user", "content": full_prompt}],
                         stream=True,
                         options={"temperature": request.temperature}
                     )
 
-                    # 버퍼링된 스트림
-                    async def async_response():
-                        for chunk in response:
-                            yield chunk
-
-                    async for buffered_chunk in buffer_stream(async_response(), buffer_size=10):
+                    async for buffered_chunk in buffer_stream(response, buffer_size=10):
                         data = {"type": "content", "data": buffered_chunk}
                         yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
 
@@ -282,7 +278,7 @@ async def generate_code(request: CodeGenerationRequest):
 
         else:
             # 논스트리밍 응답
-            response = client.chat(
+            response = await async_client.chat(
                 model=MODEL_NAME,
                 messages=[{"role": "user", "content": full_prompt}],
                 stream=False,
@@ -505,7 +501,7 @@ async def analyze_file(request: FileAnalysisRequest):
         full_prompt = f"{prompt}\n\n```\n{content}\n```"
 
         # Ollama로 분석
-        response = client.chat(
+        response = await async_client.chat(
             model=MODEL_NAME,
             messages=[{"role": "user", "content": full_prompt}],
             stream=False
@@ -565,7 +561,7 @@ async def analyze_project(request: ProjectAnalysisRequest):
 프로젝트 구조, 아키텍처, 개선점을 분석해주세요."""
 
         # Ollama로 분석
-        response = client.chat(
+        response = await async_client.chat(
             model=MODEL_NAME,
             messages=[{"role": "user", "content": prompt}],
             stream=False
@@ -605,6 +601,9 @@ class ConnectionManager:
         logger.info(f"WebSocket 연결: {client_id}, 총 연결: {len(self.active_connections)}")
 
     def disconnect(self, websocket: WebSocket, client_id: str):
+        # 예외 경로에서 중복 호출될 수 있으므로 멱등하게 처리
+        if websocket not in self.active_connections:
+            return
         self.active_connections.remove(websocket)
         active_websockets.dec()
         logger.info(f"WebSocket 연결 종료: {client_id}, 총 연결: {len(self.active_connections)}")
@@ -648,7 +647,7 @@ async def websocket_chat(websocket: WebSocket, client_id: str = Query(default="d
 
             # Ollama로 응답 생성 (스트리밍)
             try:
-                response = client.chat(
+                response = await async_client.chat(
                     model=MODEL_NAME,
                     messages=manager.conversation_history[client_id],
                     stream=True
@@ -657,7 +656,7 @@ async def websocket_chat(websocket: WebSocket, client_id: str = Query(default="d
                 full_response = ""
                 buffer = ""
 
-                for chunk in response:
+                async for chunk in response:
                     content = chunk.get("message", {}).get("content", "")
                     buffer += content
                     full_response += content
