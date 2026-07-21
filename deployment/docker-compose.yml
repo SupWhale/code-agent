@@ -8,6 +8,9 @@ services:
       - "11434:11434"
     volumes:
       - ./models:/root/.ollama
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     deploy:
       resources:
         reservations:
