@@ -18,7 +18,7 @@ echo "==> 의존성 설치"
 echo "==> 실행 래퍼 생성"
 cat > "$SCRIPT_DIR/agent" << EOF
 #!/bin/bash
-exec "$VENV_DIR/bin/python" -m cli.main "\$@"
+cd "$(dirname "$SCRIPT_DIR")" && exec "$VENV_DIR/bin/python" -m cli.main "\$@"
 EOF
 chmod +x "$SCRIPT_DIR/agent"
 

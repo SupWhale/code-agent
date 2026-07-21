@@ -1,2 +1,2 @@
 #!/bin/bash
-exec "/Users/jhk26/code-agent/code-agent/cli/.venv/bin/python" -m cli.main "$@"
+cd "/Users/jhk26/code-agent/code-agent" && exec "/Users/jhk26/code-agent/code-agent/cli/.venv/bin/python" -m cli.main "$@"
