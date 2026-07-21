@@ -114,14 +114,14 @@ ssh -p "${SERVER_PORT:-22}" "${SERVER_USER}@${SERVER_HOST}" "
         cp ../.env.example ../.env
     fi
 
-    # Docker 이미지 빌드
+    # Docker 이미지 빌드 (compose 파일이 deployment/에 있으므로 상위 .env를 명시적으로 지정)
     echo '도커 이미지 빌드 중...'
-    docker compose build --no-cache coding-agent
+    docker compose --env-file ../.env build --no-cache coding-agent
 
     # 컨테이너 재시작
     echo '컨테이너 재시작 중...'
-    docker compose down
-    docker compose up -d
+    docker compose --env-file ../.env down
+    docker compose --env-file ../.env up -d
 
     # 잠시 대기
     sleep 10
@@ -177,7 +177,7 @@ echo ""
 echo "서비스 URL:"
 echo "  - API: http://${SERVER_HOST}:8000"
 echo "  - Docs: http://${SERVER_HOST}:8000/docs"
-echo "  - Grafana: http://${SERVER_HOST}:3000 (admin / admin123)"
+echo "  - Grafana: http://${SERVER_HOST}:3000 (admin / 서버 .env의 GRAFANA_ADMIN_PASSWORD 값)"
 echo "  - Prometheus: http://${SERVER_HOST}:9090"
 echo ""
 echo "로그 확인:"

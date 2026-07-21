@@ -4,7 +4,7 @@ VS Code Extension API Routes
 VS Code Extension을 위한 WebSocket 및 HTTP 엔드포인트
 """
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException, Depends
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any, List
 from pathlib import Path
@@ -15,6 +15,8 @@ from datetime import datetime
 from ..agent.session_manager import SessionManager
 from ..agent.task_manager import TaskManager
 from ..agent.orchestrator import AgentOrchestrator
+from ..auth import require_api_key, authenticate_websocket
+from ..rate_limit import check_ws_rate_limit
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +43,8 @@ def init_vscode_router(
     global _session_manager
     _session_manager = session_manager
 
-    router = APIRouter(prefix="/api/v1/vscode", tags=["vscode"])
+    # HTTP 엔드포인트 전체에 API 키 인증 적용 (WebSocket은 accept() 전 별도 검증)
+    router = APIRouter(prefix="/api/v1/vscode", tags=["vscode"], dependencies=[Depends(require_api_key)])
 
     # Request/Response 모델
     class CreateSessionRequest(BaseModel):
@@ -249,6 +252,14 @@ def init_vscode_router(
 
         실시간 양방향 통신을 위한 WebSocket 엔드포인트
         """
+        identity = await authenticate_websocket(websocket)
+        if identity is None:
+            await websocket.close(code=1008)
+            return
+        if not check_ws_rate_limit(identity.key):
+            await websocket.close(code=1013)
+            return
+
         await websocket.accept()
         logger.info(f"WebSocket connection established for session: {session_id}")
 

@@ -7,11 +7,9 @@ http {
         server coding-agent:8000;
     }
 
-    # 로그 설정
     access_log /var/log/nginx/access.log;
     error_log /var/log/nginx/error.log;
 
-    # 기본 설정
     sendfile on;
     tcp_nopush on;
     tcp_nodelay on;
@@ -19,22 +17,50 @@ http {
     types_hash_max_size 2048;
     client_max_body_size 100M;
 
-    # MIME types
     include /etc/nginx/mime.types;
     default_type application/octet-stream;
 
-    # Gzip 압축
     gzip on;
     gzip_vary on;
     gzip_proxied any;
     gzip_comp_level 6;
     gzip_types text/plain text/css text/xml text/javascript application/json application/javascript application/xml+rss application/rss+xml font/truetype font/opentype application/vnd.ms-fontobject image/svg+xml;
 
+    # 도커 브리지 네트워크 대역 — /metrics를 내부에서만 스크레이핑 가능하도록 제한
+    # (Prometheus는 실제로는 coding-agent:8000/metrics로 직접 스크레이핑하므로
+    #  이 location은 사람이 직접 확인할 때만 쓰이며, 그마저도 내부망으로 제한한다)
+    geo $internal_network {
+        default 0;
+        172.16.0.0/12 1;
+        192.168.0.0/16 1;
+        10.0.0.0/8 1;
+        127.0.0.1/32 1;
+    }
+
+    # HTTP: ACME 챌린지만 처리하고 나머지는 HTTPS로 리다이렉트
     server {
         listen 80;
-        server_name _;
+        server_name ${DOMAIN};
 
-        # API 엔드포인트
+        location /.well-known/acme-challenge/ {
+            root /var/www/certbot;
+        }
+
+        location / {
+            return 301 https://$host$request_uri;
+        }
+    }
+
+    server {
+        listen 443 ssl;
+        server_name ${DOMAIN};
+
+        ssl_certificate     /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_ciphers HIGH:!aNULL:!MD5;
+        ssl_prefer_server_ciphers on;
+
         location /api/ {
             proxy_pass http://coding-agent;
             proxy_http_version 1.1;
@@ -46,13 +72,11 @@ http {
             proxy_set_header X-Forwarded-Proto $scheme;
             proxy_cache_bypass $http_upgrade;
 
-            # 타임아웃 설정 (코드 생성은 시간이 걸릴 수 있음)
             proxy_connect_timeout 300s;
             proxy_send_timeout 300s;
             proxy_read_timeout 300s;
         }
 
-        # WebSocket 엔드포인트
         location /ws/ {
             proxy_pass http://coding-agent;
             proxy_http_version 1.1;
@@ -63,13 +87,11 @@ http {
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $scheme;
 
-            # WebSocket 타임아웃 설정
             proxy_connect_timeout 7d;
             proxy_send_timeout 7d;
             proxy_read_timeout 7d;
         }
 
-        # 헬스체크
         location /health {
             proxy_pass http://coding-agent;
             proxy_http_version 1.1;
@@ -77,14 +99,16 @@ http {
             access_log off;
         }
 
-        # 메트릭
+        # 내부망에서만 접근 가능 — Prometheus는 이 경로를 거치지 않고 내부 네트워크로 직접 스크레이핑한다
         location /metrics {
+            if ($internal_network = 0) {
+                return 403;
+            }
             proxy_pass http://coding-agent;
             proxy_http_version 1.1;
             proxy_set_header Host $host;
         }
 
-        # 루트
         location / {
             proxy_pass http://coding-agent;
             proxy_http_version 1.1;

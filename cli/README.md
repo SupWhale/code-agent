@@ -281,13 +281,17 @@ CLI 설정을 조회하거나 변경합니다. 설정은 `~/.config/code-agent/c
 ```bash
 ./agent config set server_url http://192.168.0.149:8000
 ./agent config set server_url http://localhost:8000      # 로컬로 전환
+./agent config set api_key <서버에서 발급받은 API 키>
 ```
 
 | 키 | 설명 | 기본값 |
 |----|------|--------|
 | `server_url` | 에이전트 서버 주소 | `http://192.168.0.149:8000` |
+| `api_key` | 서버 인증에 사용할 API 키 (`Authorization: Bearer` 헤더로 전송) | (없음) |
 | `session_id` | 현재 세션 ID | (자동 저장) |
 | `workspace_path` | 현재 세션 workspace 경로 | (자동 저장) |
+
+서버가 `ENVIRONMENT=production`으로 배포되어 있다면 `api_key`를 설정하지 않은 모든 요청은 401로 거부됩니다.
 
 ---
 

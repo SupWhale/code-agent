@@ -28,6 +28,8 @@ services:
       - LOG_LEVEL=DEBUG
       - WORKSPACE_PATH=/workspace
       - MAX_FILE_SIZE=104857600
+      # 로컬 개발 전용: API_KEYS 없이도 기동 가능 (프로덕션에서는 반드시 production+API_KEYS 사용)
+      - ENVIRONMENT=development
     depends_on:
       - ollama
     restart: unless-stopped

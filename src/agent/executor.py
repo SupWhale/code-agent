@@ -23,10 +23,12 @@ class ToolExecutor:
     모든 도구를 등록하고 실행을 관리합니다.
     """
 
-    def __init__(self, workspace_path: str):
+    def __init__(self, workspace_path: str, enable_shell_tool: bool = False):
         """
         Args:
             workspace_path: 작업 디렉토리 절대 경로
+            enable_shell_tool: run_command(임의 셸 명령 실행) 도구 등록 여부.
+                외부에 공개되는 배포에서는 False로 유지해야 합니다.
         """
         self.workspace_path = workspace_path
 
@@ -44,13 +46,17 @@ class ToolExecutor:
 
             # 테스트 도구
             "run_tests": RunTestsTool(workspace_path),
-            "run_command": RunCommandTool(workspace_path),
 
             # 상호작용 도구
             "finish": FinishTool(),
             "ask_user": AskUserTool(),
             "report_error": ReportErrorTool()
         }
+
+        if enable_shell_tool:
+            self.tools["run_command"] = RunCommandTool(workspace_path)
+        else:
+            logger.warning("run_command tool disabled (enable_shell_tool=False)")
 
         logger.info(f"ToolExecutor initialized with {len(self.tools)} tools")
 

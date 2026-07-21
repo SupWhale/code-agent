@@ -4,7 +4,7 @@ Agent API Routes
 FastAPI endpoints for AI agent task management.
 """
 
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any
@@ -15,6 +15,9 @@ import json
 
 from ..agent.task_manager import TaskManager
 from ..agent.memory.task_state import TaskStatus
+from ..auth import require_api_key, authenticate_websocket, AuthenticatedKey
+from ..rate_limit import limiter, check_ws_rate_limit
+from ..config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -34,8 +37,10 @@ def init_agent_router(task_manager: TaskManager) -> APIRouter:
     """
     global _task_manager
     _task_manager = task_manager
+    settings = get_settings()
 
-    router = APIRouter(prefix="/api/v1/agent", tags=["agent"])
+    # HTTP 엔드포인트 전체에 API 키 인증 적용 (WebSocket은 accept() 전 별도 검증)
+    router = APIRouter(prefix="/api/v1/agent", tags=["agent"], dependencies=[Depends(require_api_key)])
 
     # Request/Response 모델
     class CreateTaskRequest(BaseModel):
@@ -70,20 +75,21 @@ def init_agent_router(task_manager: TaskManager) -> APIRouter:
 
     # 엔드포인트
     @router.post("/task", response_model=TaskResponse, status_code=201)
-    async def create_task(request: CreateTaskRequest):
+    @limiter.limit(f"{settings.rate_limit_per_minute}/minute")
+    async def create_task(request: Request, body: CreateTaskRequest):
         """
         새 에이전트 작업 생성
 
         작업을 생성만 하고 즉시 반환합니다.
         실제 실행은 /task/{task_id}/execute 또는 WebSocket으로 시작합니다.
         """
-        task_id = request.task_id or str(uuid.uuid4())
+        task_id = body.task_id or str(uuid.uuid4())
 
         try:
             task = _task_manager.create_task(
                 task_id=task_id,
-                user_request=request.user_request,
-                workspace_path=request.workspace_path
+                user_request=body.user_request,
+                workspace_path=body.workspace_path
             )
 
             logger.info(f"Task created via API: {task_id}")
@@ -192,7 +198,8 @@ def init_agent_router(task_manager: TaskManager) -> APIRouter:
         return None
 
     @router.post("/task/{task_id}/execute")
-    async def execute_task(task_id: str):
+    @limiter.limit(f"{settings.rate_limit_per_minute}/minute")
+    async def execute_task(request: Request, task_id: str):
         """
         작업 실행 (Server-Sent Events)
 
@@ -239,6 +246,14 @@ def init_agent_router(task_manager: TaskManager) -> APIRouter:
 
         작업 실행 이벤트를 WebSocket으로 실시간 전송합니다.
         """
+        identity = await authenticate_websocket(websocket)
+        if identity is None:
+            await websocket.close(code=1008)
+            return
+        if not check_ws_rate_limit(identity.key):
+            await websocket.close(code=1013)
+            return
+
         await websocket.accept()
         logger.info(f"WebSocket connection established for task: {task_id}")
 

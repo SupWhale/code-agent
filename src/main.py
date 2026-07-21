@@ -13,13 +13,18 @@ from datetime import datetime
 
 import aiofiles
 import ollama
-from fastapi import FastAPI, HTTPException, UploadFile, File, WebSocket, WebSocketDisconnect, Query
+from fastapi import FastAPI, HTTPException, UploadFile, File, WebSocket, WebSocketDisconnect, Query, Request, Depends
 from fastapi.responses import StreamingResponse, FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
+from slowapi.errors import RateLimitExceeded
+from slowapi import _rate_limit_exceeded_handler
 
 # Agent imports
+from .config import get_settings
+from .auth import require_api_key, require_admin_key, authenticate_websocket, AuthenticatedKey
+from .rate_limit import limiter, check_ws_rate_limit
 from .agent.executor import ToolExecutor
 from .agent.orchestrator import AgentOrchestrator
 from .agent.task_manager import TaskManager
@@ -29,18 +34,20 @@ from .agent.llm.ollama_client import OllamaAgentClient
 from .routes.agent import init_agent_router
 from .routes.vscode import init_vscode_router
 
+settings = get_settings()
+
 # Logging configuration
 logging.basicConfig(
-    level=os.getenv("LOG_LEVEL", "INFO"),
+    level=settings.log_level,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
-# Environment variables
-OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-MODEL_NAME = os.getenv("MODEL_NAME", "qwen2.5-coder:7b")
-WORKSPACE_PATH = Path(os.getenv("WORKSPACE_PATH", ".")).resolve()  # 현재 디렉토리를 기본값으로
-MAX_FILE_SIZE = int(os.getenv("MAX_FILE_SIZE", "104857600"))  # 100MB in bytes
+# Settings (fail-fast validated in src/config.py)
+OLLAMA_HOST = settings.ollama_host
+MODEL_NAME = settings.model_name
+WORKSPACE_PATH = settings.workspace_path
+MAX_FILE_SIZE = settings.max_file_size
 
 # Prometheus metrics
 api_requests_total = Counter('api_requests_total', 'Total API requests', ['method', 'endpoint', 'status'])
@@ -56,10 +63,14 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS middleware
+# Rate limiting
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# CORS middleware — 명시적 origin 화이트리스트만 허용 (와일드카드 + credentials는 스펙 위반)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.cors_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -67,61 +78,66 @@ app.add_middleware(
 
 # Agent system (initialized on startup)
 task_manager: Optional[TaskManager] = None
+app.state.agent_initialized = False
 
 
 @app.on_event("startup")
 async def startup_event():
-    """앱 시작 시 agent 시스템 초기화"""
+    """
+    앱 시작 시 agent 시스템 초기화.
+
+    초기화 실패 시 예외를 그대로 전파해 프로세스를 종료시킨다 — 라우터가 일부만
+    등록된 채로 "정상" 헬스체크를 반환하는 상태를 방지하기 위함. 컨테이너
+    재시작 정책(restart: unless-stopped)이 재시도를 담당한다.
+    """
     global task_manager
 
-    try:
-        logger.info("Initializing agent system...")
+    logger.info("Initializing agent system...")
 
-        # 1. LLM 클라이언트 초기화
-        llm_client = OllamaAgentClient(
-            host=OLLAMA_HOST,
-            model=MODEL_NAME,
-            temperature=0.1
-        )
+    # 1. LLM 클라이언트 초기화
+    llm_client = OllamaAgentClient(
+        host=OLLAMA_HOST,
+        model=MODEL_NAME,
+        temperature=0.1
+    )
 
-        # 2. 보안 검증기 초기화
-        security = SecurityValidator(
-            workspace_path=str(WORKSPACE_PATH),
-            strict_mode=True
-        )
+    # 2. 보안 검증기 초기화
+    security = SecurityValidator(
+        workspace_path=str(WORKSPACE_PATH),
+        strict_mode=True
+    )
 
-        # 3. 도구 실행기 초기화
-        executor = ToolExecutor(workspace_path=str(WORKSPACE_PATH))
+    # 3. 도구 실행기 초기화
+    executor = ToolExecutor(
+        workspace_path=str(WORKSPACE_PATH),
+        enable_shell_tool=settings.enable_shell_tool
+    )
 
-        # 4. 오케스트레이터 초기화
-        orchestrator = AgentOrchestrator(
-            llm_client=llm_client,
-            executor=executor,
-            security=security,
-            max_iterations=20
-        )
+    # 4. 오케스트레이터 초기화
+    orchestrator = AgentOrchestrator(
+        llm_client=llm_client,
+        executor=executor,
+        security=security,
+        max_iterations=20
+    )
 
-        # 5. 작업 관리자 초기화
-        task_manager = TaskManager(orchestrator=orchestrator)
+    # 5. 작업 관리자 초기화
+    task_manager = TaskManager(orchestrator=orchestrator)
 
-        # 6. 세션 관리자 초기화 (VS Code Extension용)
-        sessions_path = WORKSPACE_PATH / ".sessions"
-        session_manager = SessionManager(base_workspace_path=str(sessions_path))
+    # 6. 세션 관리자 초기화 (VS Code Extension용)
+    sessions_path = WORKSPACE_PATH / ".sessions"
+    session_manager = SessionManager(base_workspace_path=str(sessions_path))
 
-        # 7. Agent API 라우터 등록
-        agent_router = init_agent_router(task_manager)
-        app.include_router(agent_router)
+    # 7. Agent API 라우터 등록
+    agent_router = init_agent_router(task_manager)
+    app.include_router(agent_router)
 
-        # 8. VS Code API 라우터 등록
-        vscode_router = init_vscode_router(session_manager, task_manager, orchestrator)
-        app.include_router(vscode_router)
+    # 8. VS Code API 라우터 등록
+    vscode_router = init_vscode_router(session_manager, task_manager, orchestrator)
+    app.include_router(vscode_router)
 
-        logger.info("Agent system initialized successfully")
-
-    except Exception as e:
-        logger.error(f"Failed to initialize agent system: {e}")
-        # Agent 시스템 초기화 실패해도 앱은 계속 실행
-        logger.warning("App will continue without agent features")
+    app.state.agent_initialized = True
+    logger.info("Agent system initialized successfully")
 
 # Custom JSON Response with UTF-8 support
 class UnicodeJSONResponse(JSONResponse):
@@ -219,6 +235,7 @@ async def health_check():
             "ollama": "connected",
             "model": MODEL_NAME,
             "model_available": model_available,
+            "agent_initialized": app.state.agent_initialized,
             "timestamp": datetime.now().isoformat()
         })
     except Exception as e:
@@ -236,16 +253,21 @@ async def metrics():
 
 
 @app.post("/api/v1/generate")
-async def generate_code(request: CodeGenerationRequest):
+@limiter.limit(f"{settings.rate_limit_per_minute}/minute")
+async def generate_code(
+    request: Request,
+    body: CodeGenerationRequest,
+    identity: AuthenticatedKey = Depends(require_api_key),
+):
     """코드 생성 API"""
     start_time = datetime.now()
 
     try:
         # 프롬프트 구성
-        system_prompt = f"당신은 {request.language} 전문 개발자입니다. 사용자의 요청에 따라 고품질 코드를 작성해주세요."
-        full_prompt = f"{system_prompt}\n\n사용자 요청: {request.prompt}"
+        system_prompt = f"당신은 {body.language} 전문 개발자입니다. 사용자의 요청에 따라 고품질 코드를 작성해주세요."
+        full_prompt = f"{system_prompt}\n\n사용자 요청: {body.prompt}"
 
-        if request.stream:
+        if body.stream:
             # 스트리밍 응답
             async def generate():
                 try:
@@ -253,7 +275,7 @@ async def generate_code(request: CodeGenerationRequest):
                         model=MODEL_NAME,
                         messages=[{"role": "user", "content": full_prompt}],
                         stream=True,
-                        options={"temperature": request.temperature}
+                        options={"temperature": body.temperature}
                     )
 
                     async for buffered_chunk in buffer_stream(response, buffer_size=10):
@@ -282,7 +304,7 @@ async def generate_code(request: CodeGenerationRequest):
                 model=MODEL_NAME,
                 messages=[{"role": "user", "content": full_prompt}],
                 stream=False,
-                options={"temperature": request.temperature}
+                options={"temperature": body.temperature}
             )
 
             content = response.get("message", {}).get("content", "")
@@ -294,7 +316,7 @@ async def generate_code(request: CodeGenerationRequest):
 
             return UnicodeJSONResponse({
                 "code": content,
-                "language": request.language,
+                "language": body.language,
                 "timestamp": datetime.now().isoformat()
             })
 
@@ -305,8 +327,12 @@ async def generate_code(request: CodeGenerationRequest):
 
 
 @app.post("/api/v1/files/upload")
-async def upload_file(file: UploadFile = File(...), path: str = Query(default="/")):
-    """파일 업로드"""
+async def upload_file(
+    file: UploadFile = File(...),
+    path: str = Query(default="/"),
+    identity: AuthenticatedKey = Depends(require_admin_key),
+):
+    """파일 업로드 (공유 워크스페이스 전체에 쓰기 — admin 키 필요)"""
     try:
         # 경로 검증
         upload_dir = validate_path(path)
@@ -342,7 +368,7 @@ async def upload_file(file: UploadFile = File(...), path: str = Query(default="/
 
 
 @app.get("/api/v1/files/list")
-async def list_files(path: str = Query(default="/")):
+async def list_files(path: str = Query(default="/"), identity: AuthenticatedKey = Depends(require_api_key)):
     """파일 목록 조회"""
     try:
         dir_path = validate_path(path)
@@ -379,7 +405,7 @@ async def list_files(path: str = Query(default="/")):
 
 
 @app.get("/api/v1/files/read")
-async def read_file(path: str = Query(..., description="읽을 파일 경로")):
+async def read_file(path: str = Query(..., description="읽을 파일 경로"), identity: AuthenticatedKey = Depends(require_api_key)):
     """파일 읽기"""
     try:
         file_path = validate_path(path)
@@ -416,7 +442,7 @@ async def read_file(path: str = Query(..., description="읽을 파일 경로")):
 
 
 @app.get("/api/v1/files/download")
-async def download_file(path: str = Query(..., description="다운로드할 파일 경로")):
+async def download_file(path: str = Query(..., description="다운로드할 파일 경로"), identity: AuthenticatedKey = Depends(require_api_key)):
     """파일 다운로드"""
     try:
         file_path = validate_path(path)
@@ -444,8 +470,11 @@ async def download_file(path: str = Query(..., description="다운로드할 파�
 
 
 @app.delete("/api/v1/files/delete")
-async def delete_file(path: str = Query(..., description="삭제할 파일 경로")):
-    """파일 삭제"""
+async def delete_file(
+    path: str = Query(..., description="삭제할 파일 경로"),
+    identity: AuthenticatedKey = Depends(require_admin_key),
+):
+    """파일 삭제 (공유 워크스페이스 전체에서 삭제 가능 — admin 키 필요)"""
     try:
         file_path = validate_path(path)
 
@@ -477,7 +506,7 @@ async def delete_file(path: str = Query(..., description="삭제할 파일 경�
 
 
 @app.post("/api/v1/analyze/file")
-async def analyze_file(request: FileAnalysisRequest):
+async def analyze_file(request: FileAnalysisRequest, identity: AuthenticatedKey = Depends(require_api_key)):
     """단일 파일 분석"""
     try:
         file_path = validate_path(request.file_path)
@@ -524,7 +553,7 @@ async def analyze_file(request: FileAnalysisRequest):
 
 
 @app.post("/api/v1/analyze/project")
-async def analyze_project(request: ProjectAnalysisRequest):
+async def analyze_project(request: ProjectAnalysisRequest, identity: AuthenticatedKey = Depends(require_api_key)):
     """프로젝트 전체 분석"""
     try:
         project_path = validate_path(request.project_path)
@@ -628,6 +657,14 @@ manager = ConnectionManager()
 @app.websocket("/ws/chat")
 async def websocket_chat(websocket: WebSocket, client_id: str = Query(default="default")):
     """WebSocket 채팅"""
+    identity = await authenticate_websocket(websocket)
+    if identity is None:
+        await websocket.close(code=1008)
+        return
+    if not check_ws_rate_limit(identity.key):
+        await websocket.close(code=1013)
+        return
+
     await manager.connect(websocket, client_id)
 
     try:

@@ -10,6 +10,7 @@ CONFIG_FILE = CONFIG_DIR / "config.json"
 
 DEFAULTS = {
     "server_url": "http://192.168.0.149:8000",
+    "api_key": None,
     "session_id": None,
     "workspace_path": None,
     "local_workspace": None,

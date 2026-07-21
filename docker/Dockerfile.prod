@@ -17,8 +17,15 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY src/ ./src/
 COPY prompts/ ./prompts/
 
-# workspace 디렉토리 생성 (볼륨 마운트 대비)
-RUN mkdir -p /workspace
+# workspace 디렉토리 생성 (볼륨 마운트 대비). 호스트 바인드 마운트의 UID가
+# 컨테이너 사용자와 다를 수 있어 777로 열어둔다 — /app(코드)은 그대로 소유권 제한.
+RUN mkdir -p /workspace && chmod 777 /workspace
+
+# 비특권 사용자로 실행 (컨테이너가 root로 동작하지 않도록)
+RUN groupadd --gid 1000 appuser && \
+    useradd --uid 1000 --gid appuser --shell /bin/bash --create-home appuser && \
+    chown -R appuser:appuser /app
+USER appuser
 
 # 환경 변수
 ENV PYTHONUNBUFFERED=1
@@ -31,5 +38,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 # 포트 노출
 EXPOSE 8000
 
-# 애플리케이션 실행
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+# 애플리케이션 실행 (WORKERS/API_PORT 환경 변수로 오버라이드 가능, 기본값은 WORKERS=1)
+CMD ["sh", "-c", "uvicorn src.main:app --host 0.0.0.0 --port ${API_PORT:-8000} --workers ${WORKERS:-1}"]

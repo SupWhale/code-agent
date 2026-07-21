@@ -24,11 +24,11 @@ fi
 # 워크스페이스 디렉토리 생성
 mkdir -p workspace models
 
-# Docker Compose 실행
+# Docker Compose 실행 (compose 파일이 deployment/에 있으므로 상위 .env를 명시적으로 지정)
 echo -e "${YELLOW}Docker Compose 시작 중...${NC}"
-docker compose down
-docker compose build
-docker compose up -d
+docker compose --env-file ../.env down
+docker compose --env-file ../.env build
+docker compose --env-file ../.env up -d
 
 # 잠시 대기
 echo -e "${YELLOW}서비스 초기화 대기 중...${NC}"
@@ -43,7 +43,7 @@ for i in {1..5}; do
         echo "서비스 URL:"
         echo "  - API: http://localhost:8000"
         echo "  - Docs: http://localhost:8000/docs"
-        echo "  - Grafana: http://localhost:3000 (admin / admin123)"
+        echo "  - Grafana: http://localhost:3000 (admin / .env의 GRAFANA_ADMIN_PASSWORD 값)"
         echo "  - Prometheus: http://localhost:9090"
         echo ""
         echo "Ollama 모델 다운로드:"
