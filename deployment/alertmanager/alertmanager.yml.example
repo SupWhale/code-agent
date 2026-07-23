@@ -1,0 +1,17 @@
+# deployment/alertmanager/alertmanager.yml 로 복사한 뒤 웹훅 URL을 실제 값으로 교체하세요.
+# (webhook URL은 종종 그 자체로 토큰을 담고 있어 .env처럼 커밋하지 않는 파일로 취급합니다 — .gitignore 참고)
+
+route:
+  receiver: default
+  group_by: ['alertname']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 3h
+
+receivers:
+  - name: default
+    # Slack: https://api.slack.com/messaging/webhooks
+    # Discord: 서버 설정 > 연동 > 웹후크, 뒤에 /slack을 붙이면 Slack 포맷 호환
+    webhook_configs:
+      - url: 'https://REPLACE_ME_WITH_YOUR_WEBHOOK_URL'
+        send_resolved: true

@@ -1,0 +1,60 @@
+groups:
+  - name: coding-agent-alerts
+    rules:
+      - alert: InstanceDown
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.job }} 대상이 다운됨 ({{ $labels.instance }})"
+          description: "2분 이상 Prometheus 스크레이핑에 실패했습니다."
+
+      # api_requests_total은 현재 /api/v1/generate 핸들러에서만 기록되므로
+      # (src/main.py generate_code) 전체 API가 아닌 이 엔드포인트에 한정된 지표다.
+      - alert: GenerateEndpointHighErrorRate
+        expr: |
+          sum(rate(api_requests_total{endpoint="/api/v1/generate", status=~"5.."}[5m]))
+          /
+          sum(rate(api_requests_total{endpoint="/api/v1/generate"}[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "/api/v1/generate 5xx 비율이 5%를 초과했습니다"
+          description: "최근 5분간 5xx 비율: {{ $value | humanizePercentage }}"
+
+      - alert: GenerateLatencyHigh
+        expr: histogram_quantile(0.95, sum(rate(model_inference_time_seconds_bucket[5m])) by (le)) > 30
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "코드 생성 p95 지연시간이 30초를 초과했습니다"
+          description: "p95 지연시간: {{ $value }}s"
+
+      - alert: DiskSpaceLow
+        expr: node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"} < 0.1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "루트 파일시스템 여유 공간이 10% 미만입니다"
+          description: "여유 공간: {{ $value | humanizePercentage }}"
+
+      - alert: HostMemoryLow
+        expr: node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes < 0.1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "호스트 가용 메모리가 10% 미만입니다"
+          description: "가용 메모리 비율: {{ $value | humanizePercentage }}"
+
+      - alert: ContainerRestartingTooOften
+        expr: changes(container_start_time_seconds{name!=""}[15m]) > 2
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.name }} 컨테이너가 15분 내 3회 이상 재시작됨"
+          description: "크래시 루프 가능성 — docker compose logs {{ $labels.name }}로 확인하세요."

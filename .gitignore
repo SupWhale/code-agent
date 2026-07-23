@@ -31,6 +31,9 @@ env/
 .env.local
 .env.deploy
 
+# 웹훅 URL 등 실제 값이 들어가는 알림 설정 (deployment/alertmanager/alertmanager.yml.example 참고)
+deployment/alertmanager/alertmanager.yml
+
 # Testing
 .pytest_cache/
 .coverage

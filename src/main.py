@@ -23,6 +23,7 @@ from slowapi import _rate_limit_exceeded_handler
 
 # Agent imports
 from .config import get_settings
+from .logging_setup import configure_logging, RequestIDMiddleware, bind_new_request_id
 from .auth import require_api_key, require_admin_key, authenticate_websocket, AuthenticatedKey
 from .rate_limit import limiter, check_ws_rate_limit
 from .agent.executor import ToolExecutor
@@ -36,11 +37,8 @@ from .routes.vscode import init_vscode_router
 
 settings = get_settings()
 
-# Logging configuration
-logging.basicConfig(
-    level=settings.log_level,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
+# 구조화(JSON) 로깅 — 모든 레코드에 request_id가 자동으로 포함된다
+configure_logging(settings.log_level)
 logger = logging.getLogger(__name__)
 
 # Settings (fail-fast validated in src/config.py)
@@ -75,6 +73,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Request ID — CORS 다음에 등록해 가장 바깥쪽(요청 진입 시 가장 먼저 실행)에서 부여
+app.add_middleware(RequestIDMiddleware)
 
 # Agent system (initialized on startup)
 task_manager: Optional[TaskManager] = None
@@ -138,6 +139,16 @@ async def startup_event():
 
     app.state.agent_initialized = True
     logger.info("Agent system initialized successfully")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """
+    SIGTERM 수신 시 uvicorn이 진행 중인 요청/WebSocket 연결에 유예 시간을 준 뒤 이 핸들러를 호출한다.
+    실제 대기는 uvicorn --timeout-graceful-shutdown(+ docker stop_grace_period)이 담당한다.
+    """
+    logger.info("Application shutdown initiated")
+
 
 # Custom JSON Response with UTF-8 support
 class UnicodeJSONResponse(JSONResponse):
@@ -222,7 +233,10 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    """헬스체크 - Ollama 연결 확인"""
+    """헬스체크 - Ollama 연결, 워크스페이스 쓰기 가능 여부, 에이전트 초기화 상태 확인"""
+    workspace_writable = os.access(WORKSPACE_PATH, os.W_OK)
+    task_stats = task_manager.get_stats() if task_manager else None
+
     try:
         # Ollama 서버 연결 확인 (이벤트 루프 블로킹 방지)
         models = await asyncio.to_thread(client.list)
@@ -236,6 +250,8 @@ async def health_check():
             "model": MODEL_NAME,
             "model_available": model_available,
             "agent_initialized": app.state.agent_initialized,
+            "workspace_writable": workspace_writable,
+            "tasks": task_stats,
             "timestamp": datetime.now().isoformat()
         })
     except Exception as e:
@@ -657,6 +673,7 @@ manager = ConnectionManager()
 @app.websocket("/ws/chat")
 async def websocket_chat(websocket: WebSocket, client_id: str = Query(default="default")):
     """WebSocket 채팅"""
+    bind_new_request_id()
     identity = await authenticate_websocket(websocket)
     if identity is None:
         await websocket.close(code=1008)

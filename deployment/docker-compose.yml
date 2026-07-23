@@ -21,6 +21,9 @@ services:
       - coding-agent-network
 
   coding-agent:
+    # CI가 GHCR에 푸시한 태그를 pull하는 것이 기본 경로 (scripts/deploy_to_server.sh).
+    # build:는 로컬에서 소스로 직접 빌드/테스트할 때를 위해 남겨둔다 (`docker compose build`).
+    image: ghcr.io/supwhale/code-agent:${IMAGE_TAG:-latest}
     build:
       context: ..
       dockerfile: docker/Dockerfile.prod
@@ -29,6 +32,13 @@ services:
       - "8000:8000"
     volumes:
       - ./workspace:/workspace
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+    # SIGTERM 후 우아하게 종료할 시간 (uvicorn --timeout-graceful-shutdown 25s보다 여유 있게)
+    stop_grace_period: 30s
     environment:
       - OLLAMA_HOST=http://ollama:11434
       - MODEL_NAME=qwen2.5-coder:7b
@@ -90,6 +100,7 @@ services:
       - "9090:9090"
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
       - prometheus-data:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
@@ -97,6 +108,36 @@ services:
       - '--web.console.libraries=/etc/prometheus/console_libraries'
       - '--web.console.templates=/etc/prometheus/consoles'
       - '--web.enable-lifecycle'
+    depends_on:
+      - alertmanager
+    restart: unless-stopped
+    networks:
+      - coding-agent-network
+
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: alertmanager
+    ports:
+      - "9093:9093"
+    volumes:
+      # deployment/alertmanager/alertmanager.yml.example를 복사해 웹훅 URL을 채우세요 (gitignore됨)
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    restart: unless-stopped
+    networks:
+      - coding-agent-network
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: cadvisor
+    ports:
+      - "8080:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
     restart: unless-stopped
     networks:
       - coding-agent-network
@@ -141,6 +182,7 @@ volumes:
   grafana-data:
   certbot-etc:
   certbot-webroot:
+  alertmanager-data:
 
 networks:
   coding-agent-network:

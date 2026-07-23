@@ -21,6 +21,12 @@ if [ ! -f "../.env" ]; then
     cp ../.env.example ../.env
 fi
 
+# alertmanager 설정 확인 (웹훅 URL이 실제 값이 아니면 알림이 전송되지 않음 — .env처럼 커밋되지 않음)
+if [ ! -f "alertmanager/alertmanager.yml" ]; then
+    echo -e "${YELLOW}alertmanager.yml 생성 중 (webhook URL을 직접 채워주세요)...${NC}"
+    cp alertmanager/alertmanager.yml.example alertmanager/alertmanager.yml
+fi
+
 # 워크스페이스 디렉토리 생성
 mkdir -p workspace models
 

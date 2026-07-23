@@ -45,10 +45,11 @@ if [ "${SKIP_TESTS:-false}" != "true" ]; then
     fi
 fi
 
-# Git 상태 확인
+# Git 상태 확인 — GHCR 이미지는 GitHub Actions가 push된 커밋 기준으로만 빌드하므로
+# 커밋되지 않은/푸시되지 않은 변경사항은 배포되는 이미지에 반영되지 않는다.
 if [ -d ".git" ]; then
     if [ -n "$(git status --porcelain)" ]; then
-        echo -e "${YELLOW}경고: 커밋되지 않은 변경사항이 있습니다.${NC}"
+        echo -e "${YELLOW}경고: 커밋되지 않은 변경사항이 있습니다. 이 변경사항은 배포될 이미지에 포함되지 않습니다.${NC}"
         git status --short
         read -p "계속하시겠습니까? (y/N): " -n 1 -r
         echo
@@ -57,6 +58,10 @@ if [ -d ".git" ]; then
         fi
     fi
 fi
+
+GIT_SHA=$(git rev-parse HEAD)
+echo -e "${YELLOW}배포할 이미지 태그: ${GIT_SHA}${NC}"
+echo "(GitHub Actions가 이 커밋에 대한 빌드를 이미 완료해 GHCR에 푸시했어야 합니다)"
 
 # SSH 연결 테스트
 echo -e "${YELLOW}SSH 연결 테스트 중...${NC}"
@@ -114,14 +119,25 @@ ssh -p "${SERVER_PORT:-22}" "${SERVER_USER}@${SERVER_HOST}" "
         cp ../.env.example ../.env
     fi
 
-    # Docker 이미지 빌드 (compose 파일이 deployment/에 있으므로 상위 .env를 명시적으로 지정)
-    echo '도커 이미지 빌드 중...'
-    docker compose --env-file ../.env build --no-cache coding-agent
+    # alertmanager 설정 확인
+    if [ ! -f 'alertmanager/alertmanager.yml' ]; then
+        echo '경고: alertmanager.yml이 없습니다. alertmanager.yml.example을 복사합니다.'
+        cp alertmanager/alertmanager.yml.example alertmanager/alertmanager.yml
+    fi
+
+    # 롤백용으로 현재 태그를 이전 태그로 보관
+    if [ -f '.current_tag' ]; then
+        cp .current_tag .previous_tag
+    fi
+    echo '${GIT_SHA}' > .current_tag
+
+    # GHCR에서 태그된 이미지 pull (서버에서 소스 빌드하지 않음)
+    echo '이미지 pull 중 (태그: ${GIT_SHA})...'
+    IMAGE_TAG='${GIT_SHA}' docker compose --env-file ../.env pull coding-agent
 
     # 컨테이너 재시작
     echo '컨테이너 재시작 중...'
-    docker compose --env-file ../.env down
-    docker compose --env-file ../.env up -d
+    IMAGE_TAG='${GIT_SHA}' docker compose --env-file ../.env up -d
 
     # 잠시 대기
     sleep 10
@@ -143,22 +159,20 @@ for i in $(seq 1 $MAX_RETRIES); do
     fi
 
     if [ $i -eq $MAX_RETRIES ]; then
-        echo -e "${RED}헬스체크 실패! 롤백을 수행합니다.${NC}"
+        echo -e "${RED}헬스체크 실패! 이전 태그로 자동 롤백합니다.${NC}"
 
-        # 롤백
+        # 롤백 — 이미지 태그만 이전 것으로 되돌린다 (파일시스템을 건드리지 않음)
         ssh -p "${SERVER_PORT:-22}" "${SERVER_USER}@${SERVER_HOST}" "
+            set -e
             cd '${SERVER_PATH}/deployment'
-            docker compose down
-
-            # 최신 백업 복원
-            BACKUP_DIR='${SERVER_PATH}/../backup'
-            LATEST_BACKUP=\$(ls -t \$BACKUP_DIR/coding-agent-backup-*.tar.gz 2>/dev/null | head -1)
-            if [ -n \"\$LATEST_BACKUP\" ]; then
-                echo \"백업 복원: \$LATEST_BACKUP\"
-                cd '${SERVER_PATH}'
-                tar -xzf \$LATEST_BACKUP
-                cd deployment
-                docker compose up -d
+            if [ -f '.previous_tag' ]; then
+                PREV_TAG=\$(cat .previous_tag)
+                echo \"이전 태그로 롤백: \$PREV_TAG\"
+                IMAGE_TAG=\"\$PREV_TAG\" docker compose --env-file ../.env pull coding-agent
+                IMAGE_TAG=\"\$PREV_TAG\" docker compose --env-file ../.env up -d
+                echo \"\$PREV_TAG\" > .current_tag
+            else
+                echo '이전 태그 기록이 없어 자동 롤백할 수 없습니다. scripts/rollback.sh로 수동 확인하세요.'
             fi
         "
 
@@ -183,4 +197,4 @@ echo ""
 echo "로그 확인:"
 echo "  ssh -p ${SERVER_PORT:-22} ${SERVER_USER}@${SERVER_HOST}"
 echo "  cd ${SERVER_PATH}/deployment"
-echo "  docker compose logs -f coding-agent"
+echo "  docker compose --env-file ../.env logs -f coding-agent"

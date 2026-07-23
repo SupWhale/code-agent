@@ -17,6 +17,7 @@ from ..agent.task_manager import TaskManager
 from ..agent.orchestrator import AgentOrchestrator
 from ..auth import require_api_key, authenticate_websocket
 from ..rate_limit import check_ws_rate_limit
+from ..logging_setup import bind_new_request_id
 
 logger = logging.getLogger(__name__)
 
@@ -252,6 +253,7 @@ def init_vscode_router(
 
         실시간 양방향 통신을 위한 WebSocket 엔드포인트
         """
+        bind_new_request_id()
         identity = await authenticate_websocket(websocket)
         if identity is None:
             await websocket.close(code=1008)

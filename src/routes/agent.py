@@ -18,6 +18,7 @@ from ..agent.memory.task_state import TaskStatus
 from ..auth import require_api_key, authenticate_websocket, AuthenticatedKey
 from ..rate_limit import limiter, check_ws_rate_limit
 from ..config import get_settings
+from ..logging_setup import bind_new_request_id
 
 logger = logging.getLogger(__name__)
 
@@ -246,6 +247,7 @@ def init_agent_router(task_manager: TaskManager) -> APIRouter:
 
         작업 실행 이벤트를 WebSocket으로 실시간 전송합니다.
         """
+        bind_new_request_id()
         identity = await authenticate_websocket(websocket)
         if identity is None:
             await websocket.close(code=1008)
