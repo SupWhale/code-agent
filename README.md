@@ -13,7 +13,7 @@ LLM(Ollama + Qwen2.5-Coder) 기반 자율 코딩 에이전트. FastAPI 백엔드
 
 ## 기술 스택
 
-FastAPI · Uvicorn · Pydantic v2 · Ollama · Prometheus/Grafana · Docker · Nginx · Typer/Rich(CLI)
+FastAPI · Uvicorn · Pydantic v2 · Ollama · Prometheus/Grafana/Alertmanager/cAdvisor · Docker · Nginx · GitHub Actions · Typer/Rich(CLI)
 
 ## 프로덕션 준비 상태
 
@@ -28,10 +28,18 @@ FastAPI · Uvicorn · Pydantic v2 · Ollama · Prometheus/Grafana · Docker · N
 - Grafana 기본 비밀번호 제거, 배포 스크립트 비밀번호 echo 제거
 - nginx + certbot 기반 TLS(Let's Encrypt) 스캐폴딩
 
-**진행 예정 (Phase 2+)**
-- CI/CD 파이프라인(GitHub Actions), 린트/타입체크(ruff/mypy) 도입
-- 구조화 로깅, 이미지 버저닝 및 안전한 롤백(현재 배포 스크립트는 소스 rsync + 현지 빌드 방식)
-- 의존성/이미지 취약점 스캔, Prometheus 알림 규칙
+**완료 (Phase 2 — 운영 안정성 기반)**
+- 구조화(JSON) 로깅 + Request ID 미들웨어(HTTP 전체 + WebSocket)
+- `/health`에 워크스페이스 쓰기 가능 여부·태스크 통계 추가
+- 컨테이너 CPU/메모리 제한, graceful shutdown(uvicorn timeout + stop_grace_period)
+- Prometheus 알림 규칙(인스턴스 다운/5xx율/지연시간/디스크·메모리/컨테이너 재시작 루프) + Alertmanager + cAdvisor
+- GitHub Actions(`.github/workflows/build-and-push.yml`)로 테스트 통과 시 GHCR(`ghcr.io/supwhale/code-agent`)에 이미지 빌드/푸시
+- 배포 스크립트를 현지 빌드 방식에서 GHCR 태그 pull 방식으로 전환, `rollback.sh`는 `git reset --hard`/`rm -rf` 대신 이전 태그로 안전하게 롤백
+
+**진행 예정 (Phase 3+)**
+- 첫 공개 배포 (실제 도메인 필요)
+- 린트/타입체크(ruff/mypy) 도입, 라우트/오케스트레이터 루프 테스트 확충
+- 의존성/이미지 취약점 스캔
 - Redis 기반 상태 공유(현재 `WORKERS=1` 고정 — 태스크/세션 상태가 프로세스 메모리에 있음)
 
 ## 로컬 실행
