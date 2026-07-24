@@ -62,6 +62,16 @@ if [ -d "workspace/.sessions" ] && ! rm -rf workspace/.sessions 2>/dev/null; the
 fi
 chmod -R 777 workspace 2>/dev/null || true
 
+# workspace 자체가 예전 root 소유라 위 chmod가 조용히 실패했을 수 있으니 실제로
+# 쓰기 가능한지 확인한다 — 아니면 컨테이너가 기동 직후 크래시 루프에 빠지므로 여기서 미리 잡는다.
+if ! touch "workspace/.write_test" 2>/dev/null; then
+    echo -e "${RED}workspace 디렉토리에 쓰기 권한이 없습니다 (예전 root 소유로 추정).${NC}"
+    echo -e "${RED}서버에서 다음을 한 번 실행한 뒤 다시 시도하세요:${NC}"
+    echo -e "${RED}  sudo chmod -R 777 $(pwd)/workspace${NC}"
+    exit 1
+fi
+rm -f "workspace/.write_test"
+
 # Docker Compose 실행 (compose 파일이 deployment/에 있으므로 상위 .env를 명시적으로 지정)
 echo -e "${YELLOW}Docker Compose 시작 중...${NC}"
 docker compose --env-file ../.env down
