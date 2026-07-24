@@ -3,6 +3,7 @@
 set -e
 
 # 색상 정의
+RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
@@ -31,24 +32,35 @@ fi
 # docker compose는 명령과 무관하게 파일 전체를 먼저 해석하므로, DOMAIN이 비어 있으면
 # coding-agent만 띄우려 해도 실패한다 — 그래서 placeholder 값이라도 .env에 채워둔다.
 # (실제 인증서는 발급되지 않으며, 공개 도메인이 생기면 scripts/init_letsencrypt.sh로 TLS를 별도로 붙이면 된다)
+LAN_PLACEHOLDER_DOMAIN="lan-test.local"
+CURRENT_DOMAIN=$(grep -E '^DOMAIN=' ../.env 2>/dev/null | head -1 | cut -d= -f2-)
+
 SERVICES="ollama coding-agent prometheus alertmanager grafana node-exporter cadvisor"
-if grep -qE '^DOMAIN=\S' ../.env 2>/dev/null; then
+if [ -n "$CURRENT_DOMAIN" ] && [ "$CURRENT_DOMAIN" != "$LAN_PLACEHOLDER_DOMAIN" ]; then
     echo -e "${GREEN}DOMAIN 설정 확인됨 — nginx/certbot 포함 전체 스택을 기동합니다.${NC}"
     SERVICES="$SERVICES nginx certbot"
 else
     echo -e "${YELLOW}DOMAIN이 설정되어 있지 않아 LAN/로컬 테스트용으로 nginx/certbot(TLS)은 제외하고 기동합니다.${NC}"
-    echo -e "${YELLOW}(공개 도메인이 생기면 .env에 DOMAIN/LETSENCRYPT_EMAIL을 채우고 scripts/init_letsencrypt.sh를 실행하세요)${NC}"
+    echo -e "${YELLOW}(공개 도메인이 생기면 .env의 DOMAIN을 실제 도메인으로 바꾸고 scripts/init_letsencrypt.sh를 실행하세요)${NC}"
     if grep -qE '^DOMAIN=' ../.env 2>/dev/null; then
-        sed -i.bak 's/^DOMAIN=.*/DOMAIN=lan-test.local/' ../.env && rm -f ../.env.bak
+        sed -i.bak "s/^DOMAIN=.*/DOMAIN=${LAN_PLACEHOLDER_DOMAIN}/" ../.env && rm -f ../.env.bak
     else
-        echo "DOMAIN=lan-test.local" >> ../.env
+        echo "DOMAIN=${LAN_PLACEHOLDER_DOMAIN}" >> ../.env
     fi
 fi
 
 # 워크스페이스 디렉토리 생성 (컨테이너가 non-root(uid 1000)로 도므로 호스트 바인드 마운트도
-# 쓰기 가능해야 한다 — 이전에 root로 생성된 디렉토리가 남아있으면 여기서 다시 열어준다)
+# 쓰기 가능해야 한다). 예전에 root로 실행되던 컨테이너가 만든 workspace/.sessions는
+# 일반 사용자 권한의 chmod로 열 수 없으므로(소유자만 변경 가능), 비어 있지 않다면
+# 통째로 지우고 다시 만든다 — 세션 데이터는 어차피 임시 작업공간이라 지워도 안전하다.
 mkdir -p workspace models
-chmod -R 777 workspace
+if [ -d "workspace/.sessions" ] && ! rm -rf workspace/.sessions 2>/dev/null; then
+    echo -e "${RED}workspace/.sessions가 예전 root 소유라 일반 권한으로 정리할 수 없습니다.${NC}"
+    echo -e "${RED}서버에서 다음을 한 번 실행한 뒤 다시 시도하세요:${NC}"
+    echo -e "${RED}  sudo rm -rf $(pwd)/workspace/.sessions${NC}"
+    exit 1
+fi
+chmod -R 777 workspace 2>/dev/null || true
 
 # Docker Compose 실행 (compose 파일이 deployment/에 있으므로 상위 .env를 명시적으로 지정)
 echo -e "${YELLOW}Docker Compose 시작 중...${NC}"
