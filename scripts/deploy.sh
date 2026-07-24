@@ -27,14 +27,32 @@ if [ ! -f "alertmanager/alertmanager.yml" ]; then
     cp alertmanager/alertmanager.yml.example alertmanager/alertmanager.yml
 fi
 
+# DOMAIN 미설정 시 LAN/로컬 테스트로 간주해 nginx/certbot(TLS)는 제외하고 기동한다.
+# docker compose는 명령과 무관하게 파일 전체를 먼저 해석하므로, DOMAIN이 비어 있으면
+# coding-agent만 띄우려 해도 실패한다 — 그래서 placeholder 값이라도 .env에 채워둔다.
+# (실제 인증서는 발급되지 않으며, 공개 도메인이 생기면 scripts/init_letsencrypt.sh로 TLS를 별도로 붙이면 된다)
+SERVICES="ollama coding-agent prometheus alertmanager grafana node-exporter cadvisor"
+if grep -qE '^DOMAIN=\S' ../.env 2>/dev/null; then
+    echo -e "${GREEN}DOMAIN 설정 확인됨 — nginx/certbot 포함 전체 스택을 기동합니다.${NC}"
+    SERVICES="$SERVICES nginx certbot"
+else
+    echo -e "${YELLOW}DOMAIN이 설정되어 있지 않아 LAN/로컬 테스트용으로 nginx/certbot(TLS)은 제외하고 기동합니다.${NC}"
+    echo -e "${YELLOW}(공개 도메인이 생기면 .env에 DOMAIN/LETSENCRYPT_EMAIL을 채우고 scripts/init_letsencrypt.sh를 실행하세요)${NC}"
+    if grep -qE '^DOMAIN=' ../.env 2>/dev/null; then
+        sed -i.bak 's/^DOMAIN=.*/DOMAIN=lan-test.local/' ../.env && rm -f ../.env.bak
+    else
+        echo "DOMAIN=lan-test.local" >> ../.env
+    fi
+fi
+
 # 워크스페이스 디렉토리 생성
 mkdir -p workspace models
 
 # Docker Compose 실행 (compose 파일이 deployment/에 있으므로 상위 .env를 명시적으로 지정)
 echo -e "${YELLOW}Docker Compose 시작 중...${NC}"
 docker compose --env-file ../.env down
-docker compose --env-file ../.env build
-docker compose --env-file ../.env up -d
+docker compose --env-file ../.env build $SERVICES
+docker compose --env-file ../.env up -d $SERVICES
 
 # 잠시 대기
 echo -e "${YELLOW}서비스 초기화 대기 중...${NC}"
@@ -51,6 +69,10 @@ for i in {1..5}; do
         echo "  - Docs: http://localhost:8000/docs"
         echo "  - Grafana: http://localhost:3000 (admin / .env의 GRAFANA_ADMIN_PASSWORD 값)"
         echo "  - Prometheus: http://localhost:9090"
+        echo "  - Alertmanager: http://localhost:9093"
+        if [[ "$SERVICES" != *"nginx"* ]]; then
+            echo "  (nginx/certbot 미기동 — TLS는 DOMAIN 설정 후 scripts/init_letsencrypt.sh로 별도 진행)"
+        fi
         echo ""
         echo "Ollama 모델 다운로드:"
         echo "  docker exec ollama ollama pull qwen2.5-coder:7b"
