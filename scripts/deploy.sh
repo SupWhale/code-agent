@@ -45,8 +45,10 @@ else
     fi
 fi
 
-# 워크스페이스 디렉토리 생성
+# 워크스페이스 디렉토리 생성 (컨테이너가 non-root(uid 1000)로 도므로 호스트 바인드 마운트도
+# 쓰기 가능해야 한다 — 이전에 root로 생성된 디렉토리가 남아있으면 여기서 다시 열어준다)
 mkdir -p workspace models
+chmod -R 777 workspace
 
 # Docker Compose 실행 (compose 파일이 deployment/에 있으므로 상위 .env를 명시적으로 지정)
 echo -e "${YELLOW}Docker Compose 시작 중...${NC}"
