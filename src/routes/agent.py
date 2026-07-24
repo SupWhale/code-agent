@@ -40,8 +40,9 @@ def init_agent_router(task_manager: TaskManager) -> APIRouter:
     _task_manager = task_manager
     settings = get_settings()
 
-    # HTTP 엔드포인트 전체에 API 키 인증 적용 (WebSocket은 accept() 전 별도 검증)
-    router = APIRouter(prefix="/api/v1/agent", tags=["agent"], dependencies=[Depends(require_api_key)])
+    # HTTP 엔드포인트마다 API 키 인증 적용 (WebSocket은 HTTPBearer와 호환되지 않아
+    # 라우터 레벨 dependencies로 걸 수 없음 — accept() 전 authenticate_websocket()으로 별도 검증)
+    router = APIRouter(prefix="/api/v1/agent", tags=["agent"])
 
     # Request/Response 모델
     class CreateTaskRequest(BaseModel):
@@ -77,7 +78,7 @@ def init_agent_router(task_manager: TaskManager) -> APIRouter:
     # 엔드포인트
     @router.post("/task", response_model=TaskResponse, status_code=201)
     @limiter.limit(f"{settings.rate_limit_per_minute}/minute")
-    async def create_task(request: Request, body: CreateTaskRequest):
+    async def create_task(request: Request, body: CreateTaskRequest, identity: AuthenticatedKey = Depends(require_api_key)):
         """
         새 에이전트 작업 생성
 
@@ -110,7 +111,7 @@ def init_agent_router(task_manager: TaskManager) -> APIRouter:
             raise HTTPException(status_code=500, detail=str(e))
 
     @router.get("/task/{task_id}", response_model=TaskResponse)
-    async def get_task(task_id: str):
+    async def get_task(task_id: str, identity: AuthenticatedKey = Depends(require_api_key)):
         """
         작업 상태 조회
 
@@ -135,7 +136,7 @@ def init_agent_router(task_manager: TaskManager) -> APIRouter:
         )
 
     @router.get("/tasks", response_model=TaskListResponse)
-    async def list_tasks(status: Optional[str] = None):
+    async def list_tasks(status: Optional[str] = None, identity: AuthenticatedKey = Depends(require_api_key)):
         """
         작업 목록 조회
 
@@ -177,7 +178,7 @@ def init_agent_router(task_manager: TaskManager) -> APIRouter:
         )
 
     @router.delete("/task/{task_id}", status_code=204)
-    async def delete_task(task_id: str):
+    async def delete_task(task_id: str, identity: AuthenticatedKey = Depends(require_api_key)):
         """
         작업 삭제
 
@@ -200,7 +201,7 @@ def init_agent_router(task_manager: TaskManager) -> APIRouter:
 
     @router.post("/task/{task_id}/execute")
     @limiter.limit(f"{settings.rate_limit_per_minute}/minute")
-    async def execute_task(request: Request, task_id: str):
+    async def execute_task(request: Request, task_id: str, identity: AuthenticatedKey = Depends(require_api_key)):
         """
         작업 실행 (Server-Sent Events)
 

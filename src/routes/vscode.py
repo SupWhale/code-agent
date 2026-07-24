@@ -15,7 +15,7 @@ from datetime import datetime
 from ..agent.session_manager import SessionManager
 from ..agent.task_manager import TaskManager
 from ..agent.orchestrator import AgentOrchestrator
-from ..auth import require_api_key, authenticate_websocket
+from ..auth import require_api_key, authenticate_websocket, AuthenticatedKey
 from ..rate_limit import check_ws_rate_limit
 from ..logging_setup import bind_new_request_id
 
@@ -44,8 +44,9 @@ def init_vscode_router(
     global _session_manager
     _session_manager = session_manager
 
-    # HTTP 엔드포인트 전체에 API 키 인증 적용 (WebSocket은 accept() 전 별도 검증)
-    router = APIRouter(prefix="/api/v1/vscode", tags=["vscode"], dependencies=[Depends(require_api_key)])
+    # HTTP 엔드포인트마다 API 키 인증 적용 (WebSocket은 HTTPBearer와 호환되지 않아
+    # 라우터 레벨 dependencies로 걸 수 없음 — accept() 전 authenticate_websocket()으로 별도 검증)
+    router = APIRouter(prefix="/api/v1/vscode", tags=["vscode"])
 
     # Request/Response 모델
     class CreateSessionRequest(BaseModel):
@@ -76,7 +77,7 @@ def init_vscode_router(
 
     # HTTP 엔드포인트
     @router.post("/session", response_model=SessionResponse, status_code=201)
-    async def create_session(request: CreateSessionRequest):
+    async def create_session(request: CreateSessionRequest, identity: AuthenticatedKey = Depends(require_api_key)):
         """
         새 세션 생성
 
@@ -102,7 +103,7 @@ def init_vscode_router(
             raise HTTPException(status_code=500, detail=str(e))
 
     @router.get("/session/{session_id}", response_model=SessionResponse)
-    async def get_session(session_id: str):
+    async def get_session(session_id: str, identity: AuthenticatedKey = Depends(require_api_key)):
         """
         세션 정보 조회
         """
@@ -120,7 +121,7 @@ def init_vscode_router(
         )
 
     @router.delete("/session/{session_id}", status_code=204)
-    async def delete_session(session_id: str):
+    async def delete_session(session_id: str, identity: AuthenticatedKey = Depends(require_api_key)):
         """
         세션 삭제
 
@@ -134,7 +135,7 @@ def init_vscode_router(
         return None
 
     @router.post("/session/{session_id}/files", status_code=201)
-    async def upload_files(session_id: str, request: UploadFilesRequest):
+    async def upload_files(session_id: str, request: UploadFilesRequest, identity: AuthenticatedKey = Depends(require_api_key)):
         """
         여러 파일 업로드
 
@@ -164,7 +165,7 @@ def init_vscode_router(
         }
 
     @router.get("/session/{session_id}/files")
-    async def list_files(session_id: str):
+    async def list_files(session_id: str, identity: AuthenticatedKey = Depends(require_api_key)):
         """
         파일 목록 조회
 
@@ -184,7 +185,7 @@ def init_vscode_router(
         }
 
     @router.get("/session/{session_id}/file")
-    async def get_file(session_id: str, path: str):
+    async def get_file(session_id: str, path: str, identity: AuthenticatedKey = Depends(require_api_key)):
         """
         파일 내용 조회
 
@@ -206,7 +207,7 @@ def init_vscode_router(
         }
 
     @router.get("/sessions")
-    async def list_sessions():
+    async def list_sessions(identity: AuthenticatedKey = Depends(require_api_key)):
         """
         전체 세션 목록 조회
         """
@@ -227,7 +228,7 @@ def init_vscode_router(
         }
 
     @router.delete("/sessions", status_code=200)
-    async def delete_all_sessions():
+    async def delete_all_sessions(identity: AuthenticatedKey = Depends(require_api_key)):
         """
         전체 세션 삭제
         """
@@ -239,7 +240,7 @@ def init_vscode_router(
         return {"deleted": deleted}
 
     @router.get("/sessions/stats")
-    async def get_stats():
+    async def get_stats(identity: AuthenticatedKey = Depends(require_api_key)):
         """
         세션 통계 조회
         """
