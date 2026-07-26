@@ -4,11 +4,12 @@ Task Manager
 Manages multiple agent tasks and their lifecycle.
 """
 
-from typing import Dict, Optional, AsyncIterator
+from typing import Callable, Dict, Optional, AsyncIterator
 import asyncio
 import logging
 from datetime import datetime
 
+from .llm.base import LLMClient
 from .orchestrator import AgentOrchestrator
 from .memory.task_state import TaskState, TaskStatus
 
@@ -22,12 +23,21 @@ class TaskManager:
     여러 에이전트 작업을 동시에 관리하고 상태를 추적합니다.
     """
 
-    def __init__(self, orchestrator: AgentOrchestrator):
+    def __init__(
+        self,
+        orchestrator: AgentOrchestrator,
+        llm_client_factory: Optional[Callable[[str], LLMClient]] = None,
+    ):
         """
         Args:
             orchestrator: AgentOrchestrator 인스턴스
+            llm_client_factory: 모델 이름 하나를 받아 그 모델을 쓰는 LLMClient를
+                만들어주는 팩토리. 태스크가 기본 모델과 다른 model을 지정했을 때
+                execute_task()가 이걸로 오버라이드 클라이언트를 만든다. 생략하면
+                모든 태스크가 orchestrator에 주입된 기본 모델로만 실행된다.
         """
         self.orchestrator = orchestrator
+        self.llm_client_factory = llm_client_factory
         self.tasks: Dict[str, TaskState] = {}
         self._task_locks: Dict[str, asyncio.Lock] = {}
         logger.info("TaskManager initialized")
@@ -36,7 +46,8 @@ class TaskManager:
         self,
         task_id: str,
         user_request: str,
-        workspace_path: str
+        workspace_path: str,
+        model: Optional[str] = None
     ) -> TaskState:
         """
         새 작업 생성
@@ -45,6 +56,7 @@ class TaskManager:
             task_id: 작업 ID (UUID 권장)
             user_request: 사용자 요청 내용
             workspace_path: 작업 디렉토리 경로
+            model: 이 태스크에 쓸 모델. 생략하면 기본 모델을 쓴다.
 
         Returns:
             생성된 TaskState
@@ -58,7 +70,8 @@ class TaskManager:
         task = TaskState(
             task_id=task_id,
             user_request=user_request,
-            workspace_path=workspace_path
+            workspace_path=workspace_path,
+            model=model
         )
 
         self.tasks[task_id] = task
@@ -131,12 +144,26 @@ class TaskManager:
             task.start()
             logger.info(f"Starting task execution: {task_id}")
 
+            # 태스크가 기본 모델과 다른 model을 지정했으면 그 모델로 오버라이드 클라이언트를
+            # 만든다. factory가 없거나 모델 지정이 없으면 orchestrator의 기본 모델을 그대로 씀.
+            override_llm_client: Optional[LLMClient] = None
+            if task.model and self.llm_client_factory is not None:
+                override_llm_client = self.llm_client_factory(task.model)
+            elif not task.model:
+                # 명시적으로 지정 안 한 태스크도 API 응답에서 실제로 어떤 모델로
+                # 실행됐는지 항상 드러나도록 기본 모델 이름을 채워 넣는다. orchestrator가
+                # (테스트 더블 등으로) llm을 안 갖고 있을 수도 있으니 안전하게 조회.
+                default_llm = getattr(self.orchestrator, "llm", None)
+                if default_llm is not None:
+                    task.model = getattr(default_llm, "model", None)
+
             # 오케스트레이터에게 작업 위임
             try:
                 async for event in self.orchestrator.execute_task(
                     task_id=task_id,
                     user_request=task.user_request,
-                    workspace_path=task.workspace_path
+                    workspace_path=task.workspace_path,
+                    llm_client=override_llm_client
                 ):
                     # 이벤트를 그대로 전달
                     yield event
@@ -144,7 +171,10 @@ class TaskManager:
                     # task_completed/failed 이벤트로 상태 동기화
                     # (orchestrator 이벤트는 result를 summary.result에 담아 보냄)
                     if event["type"] == "task_completed":
-                        task.complete(event.get("summary", {}).get("result") or {})
+                        task.complete(
+                            event.get("summary", {}).get("result") or {},
+                            verification=event.get("verification")
+                        )
                     elif event["type"] == "task_failed":
                         task.fail(event.get("error", "Unknown error"))
 

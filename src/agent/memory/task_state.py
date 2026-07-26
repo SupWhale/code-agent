@@ -33,9 +33,16 @@ class TaskState:
     workspace_path: str
     status: TaskStatus = TaskStatus.PENDING
 
+    # 이 태스크를 실행하는 데 쓰인 모델 (None이면 기본 모델 사용)
+    model: Optional[str] = None
+
     # 실행 결과
     result: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
+
+    # finish 자체 보고를 실제 실행 증거(run_tests 결과, 액션 실패 여부)와 대조한 소프트 검증
+    # 결과. 차단하지 않고 기록만 함 — AgentOrchestrator.execute_task()가 채워 넣는다.
+    verification: Optional[Dict[str, Any]] = None
 
     # 반복 히스토리
     iterations: List[Dict[str, Any]] = field(default_factory=list)
@@ -50,10 +57,11 @@ class TaskState:
         self.started_at = datetime.now()
         logger.info(f"Task {self.task_id} started")
 
-    def complete(self, result: Dict[str, Any]) -> None:
+    def complete(self, result: Dict[str, Any], verification: Optional[Dict[str, Any]] = None) -> None:
         """작업 완료"""
         self.status = TaskStatus.COMPLETED
         self.result = result
+        self.verification = verification
         self.completed_at = datetime.now()
         logger.info(f"Task {self.task_id} completed")
 
@@ -99,8 +107,10 @@ class TaskState:
             "user_request": self.user_request,
             "workspace_path": self.workspace_path,
             "status": self.status.value,
+            "model": self.model,
             "result": self.result,
             "error": self.error,
+            "verification": self.verification,
             "iterations": self.iterations,
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,

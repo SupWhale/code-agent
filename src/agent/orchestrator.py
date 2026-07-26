@@ -4,10 +4,10 @@ Agent Orchestrator
 Main orchestrator that connects LLM and tools to execute agent tasks.
 """
 
-from typing import Dict, List, Optional, AsyncIterator
+from typing import Any, Dict, List, Optional, AsyncIterator
 import logging
 
-from .llm.ollama_client import OllamaAgentClient
+from .llm.base import LLMClient
 from .executor import ToolExecutor
 from .memory.conversation import ConversationMemory
 from .memory.task_state import TaskState, TaskStatus
@@ -25,7 +25,7 @@ class AgentOrchestrator:
 
     def __init__(
         self,
-        llm_client: OllamaAgentClient,
+        llm_client: LLMClient,
         executor: ToolExecutor,
         security: SecurityValidator,
         max_iterations: int = 20,      # 무한 루프 방지
@@ -33,7 +33,8 @@ class AgentOrchestrator:
     ):
         """
         Args:
-            llm_client: LLM 클라이언트
+            llm_client: 기본으로 사용할 LLM 클라이언트 (전략). execute_task()에
+                llm_client를 넘기면 그 태스크에 한해 이걸 대신 사용한다.
             executor: 도구 실행 엔진
             security: 보안 검증기
             max_iterations: 최대 반복 횟수
@@ -54,7 +55,8 @@ class AgentOrchestrator:
         self,
         task_id: str,
         user_request: str,
-        workspace_path: str
+        workspace_path: str,
+        llm_client: Optional[LLMClient] = None
     ) -> AsyncIterator[Dict]:
         """
         태스크 실행 (스트리밍)
@@ -63,17 +65,22 @@ class AgentOrchestrator:
             task_id: 태스크 ID
             user_request: 사용자 요청
             workspace_path: 작업 디렉토리
+            llm_client: 이 태스크에 한해 기본 llm_client 대신 사용할 LLM 클라이언트
+                (모델별 A/B 테스트 등). 생략하면 생성자에서 주입된 기본값을 쓴다.
 
         Yields:
             상태 업데이트 딕셔너리
         """
+        active_llm = llm_client or self.llm
+
         # 초기화
         memory = ConversationMemory(max_history=20)
         state = TaskState(
             task_id=task_id,
             user_request=user_request,
             workspace_path=workspace_path,
-            status=TaskStatus.PENDING
+            status=TaskStatus.PENDING,
+            model=active_llm.model
         )
 
         state.start()
@@ -85,6 +92,11 @@ class AgentOrchestrator:
         memory.add_user_message(user_request)
 
         consecutive_failures = 0
+
+        # 소프트 검증용 상태 추적 — finish 자체 보고를 실제 증거와 대조하기 위함.
+        # 차단하지는 않고 기록만 한다 (run_tests 인프라 자체가 아직 불안정하기 때문).
+        run_tests_last_success: Optional[bool] = None
+        action_failure_count = 0
 
         try:
             for iteration in range(1, self.max_iterations + 1):
@@ -100,7 +112,7 @@ class AgentOrchestrator:
                 }
 
                 try:
-                    agent_response = await self.llm.get_next_actions_async(
+                    agent_response = await active_llm.get_next_actions_async(
                         conversation_history=memory.get_history(),
                         workspace_path=workspace_path
                     )
@@ -111,6 +123,15 @@ class AgentOrchestrator:
                         "message": f"LLM request failed: {e}"
                     }
                     consecutive_failures += 1
+
+                    # 실패한 응답도 히스토리에 남겨서 모델이 재시도할 때 "방금 응답이
+                    # 거부당했다"는 걸 알 수 있게 한다 — 이게 없으면 같은 실수(예: JSON
+                    # 파싱 자체가 깨지는 응답)를 인지하지 못한 채 그대로 반복한다.
+                    memory.add_user_message(
+                        f"Your previous response could not be processed: {e}. "
+                        f"Respond again with ONLY one valid JSON object — no markdown, "
+                        f"no code fences, all strings properly escaped."
+                    )
 
                     if consecutive_failures >= self.max_failures:
                         raise RuntimeError(
@@ -172,6 +193,9 @@ class AgentOrchestrator:
                         # 성공 시 실패 카운터 리셋
                         consecutive_failures = 0
 
+                        if tool_name == "run_tests" and isinstance(result, dict):
+                            run_tests_last_success = bool(result.get("success"))
+
                         yield {
                             "type": "action_success",
                             "tool": tool_name,
@@ -182,16 +206,33 @@ class AgentOrchestrator:
                         # finish 도구면 종료
                         if tool_name == "finish":
                             finish_result = result if isinstance(result, dict) else {}
+                            claimed_success = finish_result.get("success", True)
 
-                            state.complete(finish_result)
+                            # 소프트 검증: 모델의 자체 성공 보고를 실제 증거와 대조만
+                            # 하고, 판단 자체를 뒤집지는 않는다 — run_tests 인프라가
+                            # 아직 불안정해서 하드 게이트는 오탐 위험이 크다.
+                            verification: Dict[str, Any] = {
+                                "claimed_success": claimed_success,
+                                "run_tests_last_success": run_tests_last_success,
+                                "action_failure_count": action_failure_count,
+                                "suspicious": bool(
+                                    claimed_success and (
+                                        run_tests_last_success is False
+                                        or action_failure_count > 0
+                                    )
+                                ),
+                            }
+
+                            state.complete(finish_result, verification=verification)
 
                             yield {
                                 "type": "task_completed",
-                                "success": finish_result.get("success", True),
+                                "success": claimed_success,
                                 "message": finish_result.get(
                                     "message",
                                     "Task completed"
                                 ),
+                                "verification": verification,
                                 "summary": state.to_dict()
                             }
 
@@ -231,6 +272,10 @@ class AgentOrchestrator:
                         })
 
                         consecutive_failures += 1
+                        action_failure_count += 1
+
+                        if tool_name == "run_tests":
+                            run_tests_last_success = False
 
                         yield {
                             "type": "action_failed",

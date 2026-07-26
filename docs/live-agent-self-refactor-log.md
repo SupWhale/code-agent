@@ -53,18 +53,63 @@
 
 **실용적 결론:** 이 모델에게 안전하게 위임할 수 있는 작업은 "파일 1개, 액션 1개, 몇 줄 이내의 정확한 old/new 문자열을 내가 직접 써서 지정"하는 수준까지다. 새 파일 작성이나 여러 줄에 걸친 삽입/구조 변경은 위임하지 말고 직접 하는 편이 시간 대비 효율적이다. `finish`의 자체 성공 보고는 절대 그대로 믿지 말고, 매번 `read_file`로 결과를 직접 읽어 검증해야 한다.
 
-## 5. 별도로 확인이 필요한 인프라 이슈
+## 5. 모델 전략 패턴 + 검증/JSON 포맷 강화 (같은 날 후속 작업)
+
+4장의 실측 결과를 바탕으로, 사용자 지시에 따라 (1) 모델을 전략 패턴으로 선택/관리하는 구조,
+(2) `finish` 검증 강화(소프트) + JSON 툴콜 포맷 수정을 구현했다. 상세 계획은
+`/Users/jhk26/.claude/plans/sunny-yawning-puddle.md`에 남아있고, 여기서는 결과만 요약한다.
+
+**구현하면서 발견한 근본 원인**: `prompts/system_prompt.txt`(delete_file에 confirm 필요,
+run_tests에 scope 필요함을 정확히 문서화한, 잘 만들어진 프롬프트)가 실제로는 전혀 로드되고
+있지 않았다. `main.py`가 `OllamaAgentClient(...)`를 만들 때 `system_prompt_path`를 넘기지
+않아서, `ollama_client.py`에 내장된 훨씬 부실한 `_default_system_prompt()`(confirm 언급
+없음, run_tests 예시에 scope 누락)가 조용히 대신 쓰이고 있었다 — 4장에서 관찰한
+`delete_file confirm 누락`, `run_tests` 관련 혼란의 상당 부분이 이걸로 설명된다. 이번에
+`main.py`가 기본으로 `prompts/system_prompt.txt`를 로드하도록 배선했다(추가 검증 중
+`report_error` 도구 예시도 실제 구현(`error`/`details`/`recoverable`)과 안 맞는 걸 발견해서
+같이 고침).
+
+**변경 요약:**
+- `src/agent/llm/base.py`(신규) — `LLMClient` 추상 인터페이스, `AgentResponse` 값 객체.
+- `src/agent/llm/factory.py`(신규) — provider 레지스트리 기반 `create_llm_client()`.
+- `src/agent/llm/ollama_client.py` — `LLMClient` 상속, `chat()`에 pydantic 스키마 기반
+  `format` 파라미터 추가(Ollama Structured Outputs, 0.3.0+ — pin된 `ollama==0.3.3`에서
+  사용 가능). 이게 JSON 파싱 자체가 깨지는 실패(4장 표의 절반가량)를 샘플링 단계에서부터
+  구조적으로 막아줄 것으로 기대.
+- `src/agent/orchestrator.py` — `execute_task()`가 태스크별 `llm_client` 오버라이드를 받을
+  수 있게 됨(A/B 테스트용). `run_tests_last_success`/`action_failure_count`를 추적해서
+  `finish` 자체 보고와 대조하는 소프트 검증(`verification.suspicious`)을 `task_completed`
+  이벤트에 실어 보냄 — 차단은 안 하고 기록만 함(지금 `run_tests` 인프라 버그 때문에 하드
+  게이트는 위험). LLM 요청/파싱 실패도 이제 대화 히스토리에 피드백돼서, 모델이 재시도할 때
+  "방금 응답이 거부당했다"는 걸 알 수 있음(전엔 그냥 같은 실수를 반복했었음).
+- `src/agent/memory/task_state.py` — `TaskState`에 `model`, `verification` 필드 추가.
+- `src/agent/task_manager.py` — `llm_client_factory` 주입, `create_task(..., model=...)`로
+  태스크별 모델 지정 가능.
+- `src/routes/agent.py` — `POST /api/v1/agent/task`에 `model` 필드, 응답에 `model`/
+  `verification` 필드 노출.
+- `src/config.py` — `llm_provider`, `system_prompt_path` 설정 추가.
+- 테스트: `tests/test_llm_factory.py`(신규), `tests/test_orchestrator.py`(신규, 소프트
+  검증 + 파싱 실패 피드백 검증), `tests/test_task_manager.py`(모델 오버라이드 케이스 추가).
+  전체 77개 통과.
+
+이 변경 자체는 로컬에서 구현·검증했고(커밋 예정), 실제 라이브 서버(`192.168.0.149`)에서
+재검증한 결과는 [live-agent-eval-log.md](live-agent-eval-log.md)에 날짜별로 추가한다 —
+특히 시스템 프롬프트 교체 후 `delete_file confirm` 누락이 줄어드는지, `format` 파라미터로
+JSON 파싱 실패율이 줄어드는지가 핵심 관찰 포인트.
+
+## 6. 별도로 확인이 필요한 인프라 이슈
 
 - **`run_tests` 툴이 서버 컨테이너에서 매번 `"Failed to run tests: [Errno 2] No such file or directory"`로 실패함** (파라미터를 정확히 `{"scope": "all"}`로 줘도 동일). pytest가 컨테이너 PATH에 없거나 실행 경로 문제로 추정 — 실제 원인 확인 필요. 이게 고쳐지지 않으면 서버 에이전트가 자기 작업을 스스로 검증할 방법이 없다는 뜻이라, 신뢰도 문제를 더 악화시킴.
 - **알려진 좀비 태스크**: `task_id="verify-repo-mount"`가 2026-07-26 07:13:32부터 `running` 상태로 영구 고착(이번 세션에서 고친 버그 2 이전에 생긴 것이라 이번 수정으로 자동 해소되지 않음 — 삭제도 재실행도 안 됨, 그냥 폐기해야 함).
 - **서버 `/repo`의 부분 반영 상태**: 이번 위임 시도 과정에서 `src/agent/session_manager.py`에 `import asyncio` 한 줄만 추가된 상태로 남아있음(로컬에는 이미 완성본이 커밋됨). 다음 `git pull` 전에 그 호스트에서 `git status`로 확인 후 `git checkout -- .` 또는 `git stash`로 정리 권장.
 
-## 6. 관련 커밋
+## 7. 관련 커밋
 
 - `e8e4966` — main.py 라우트를 `routes/files.py`, `generate.py`, `chat.py`로 분리, `task_manager`를 `app.state`로 이동
 - `596ab1f` — SSE/WebSocket 연결 끊김 시 태스크 영구 running 버그 수정
 - `2ef06d3` — 만료 세션 자동 정리 누락 버그 수정
+- (예정) — 모델 전략 패턴 + 검증/JSON 포맷 강화 (5장)
 
-## 7. 참고
+## 8. 참고
 
 - 성능/신뢰도 추세를 날짜별로 계속 쌓아나가는 로그는 [live-agent-eval-log.md](live-agent-eval-log.md)에 별도로 기록한다.

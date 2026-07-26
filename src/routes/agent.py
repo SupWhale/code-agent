@@ -50,6 +50,7 @@ def init_agent_router(task_manager: TaskManager) -> APIRouter:
         user_request: str = Field(..., description="사용자 요청 내용", min_length=1)
         workspace_path: str = Field(..., description="작업 디렉토리 경로")
         task_id: Optional[str] = Field(None, description="작업 ID (생략 시 자동 생성)")
+        model: Optional[str] = Field(None, description="이 태스크에 쓸 모델 (생략 시 기본 모델)")
 
     class TaskResponse(BaseModel):
         """작업 응답"""
@@ -57,8 +58,10 @@ def init_agent_router(task_manager: TaskManager) -> APIRouter:
         status: str
         user_request: str
         workspace_path: str
+        model: Optional[str] = None
         result: Optional[Dict[str, Any]] = None
         error: Optional[str] = None
+        verification: Optional[Dict[str, Any]] = None
         started_at: Optional[str] = None
         completed_at: Optional[str] = None
         duration_seconds: Optional[float] = None
@@ -91,7 +94,8 @@ def init_agent_router(task_manager: TaskManager) -> APIRouter:
             task = _task_manager.create_task(
                 task_id=task_id,
                 user_request=body.user_request,
-                workspace_path=body.workspace_path
+                workspace_path=body.workspace_path,
+                model=body.model
             )
 
             logger.info(f"Task created via API: {task_id}")
@@ -101,6 +105,7 @@ def init_agent_router(task_manager: TaskManager) -> APIRouter:
                 status=task.status.value,
                 user_request=task.user_request,
                 workspace_path=task.workspace_path,
+                model=task.model,
                 iteration_count=task.get_iteration_count()
             )
 
@@ -127,8 +132,10 @@ def init_agent_router(task_manager: TaskManager) -> APIRouter:
             status=task.status.value,
             user_request=task.user_request,
             workspace_path=task.workspace_path,
+            model=task.model,
             result=task.result,
             error=task.error,
+            verification=task.verification,
             started_at=task.started_at.isoformat() if task.started_at else None,
             completed_at=task.completed_at.isoformat() if task.completed_at else None,
             duration_seconds=task.get_duration(),
@@ -164,8 +171,10 @@ def init_agent_router(task_manager: TaskManager) -> APIRouter:
                     status=task.status.value,
                     user_request=task.user_request,
                     workspace_path=task.workspace_path,
+                    model=task.model,
                     result=task.result,
                     error=task.error,
+                    verification=task.verification,
                     started_at=task.started_at.isoformat() if task.started_at else None,
                     completed_at=task.completed_at.isoformat() if task.completed_at else None,
                     duration_seconds=task.get_duration(),

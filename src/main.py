@@ -5,8 +5,10 @@ FastAPI-based coding assistant powered by Ollama and Qwen2.5-Coder
 
 import os
 import asyncio
+import functools
 import logging
 from datetime import datetime
+from pathlib import Path
 
 import ollama
 from fastapi import FastAPI, HTTPException
@@ -25,7 +27,7 @@ from .agent.orchestrator import AgentOrchestrator
 from .agent.task_manager import TaskManager
 from .agent.session_manager import SessionManager, periodic_session_cleanup
 from .agent.security.validator import SecurityValidator
-from .agent.llm.ollama_client import OllamaAgentClient
+from .agent.llm.factory import create_llm_client
 from .routes.agent import init_agent_router
 from .routes.vscode import init_vscode_router
 from .routes.files import init_files_router
@@ -47,6 +49,15 @@ MAX_FILE_SIZE = settings.max_file_size
 
 # 만료된 세션 정리 주기 (초) — SessionManager.cleanup_expired_sessions()를 이 간격으로 호출한다
 SESSION_CLEANUP_INTERVAL_SECONDS = 300
+
+# 시스템 프롬프트 경로 — 명시적으로 안 정해져 있으면 저장소에 포함된
+# prompts/system_prompt.txt를 기본으로 쓴다. (이게 없으면 OllamaAgentClient가
+# 자체 내장된 훨씬 부실한 fallback 프롬프트로 조용히 넘어가므로, 여기서 항상 확실한
+# 경로를 넘겨준다.)
+SYSTEM_PROMPT_PATH = str(
+    settings.system_prompt_path
+    or (Path(__file__).resolve().parent.parent / "prompts" / "system_prompt.txt")
+)
 
 # Prometheus metrics
 api_response_time = Histogram('api_response_time_seconds', 'API response time', ['method', 'endpoint'])
@@ -90,12 +101,15 @@ async def startup_event():
     """
     logger.info("Initializing agent system...")
 
-    # 1. LLM 클라이언트 초기화
-    llm_client = OllamaAgentClient(
+    # 1. LLM 클라이언트 초기화 (전략 패턴 — provider/모델은 factory가 조립)
+    llm_client_factory = functools.partial(
+        create_llm_client,
+        settings.llm_provider,
         host=OLLAMA_HOST,
-        model=MODEL_NAME,
-        temperature=0.1
+        temperature=0.1,
+        system_prompt_path=SYSTEM_PROMPT_PATH
     )
+    llm_client = llm_client_factory(MODEL_NAME)
 
     # 2. 보안 검증기 초기화
     security = SecurityValidator(
@@ -117,8 +131,8 @@ async def startup_event():
         max_iterations=20
     )
 
-    # 5. 작업 관리자 초기화
-    task_manager = TaskManager(orchestrator=orchestrator)
+    # 5. 작업 관리자 초기화 (llm_client_factory로 태스크별 모델 오버라이드 지원)
+    task_manager = TaskManager(orchestrator=orchestrator, llm_client_factory=llm_client_factory)
     app.state.task_manager = task_manager
 
     # 6. 세션 관리자 초기화 (VS Code Extension용)

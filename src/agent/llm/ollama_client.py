@@ -10,6 +10,10 @@ from typing import List, Dict, Optional, Any
 from pathlib import Path
 import logging
 
+from pydantic import BaseModel
+
+from .base import AgentResponse, LLMClient
+
 try:
     import ollama
 except ImportError:
@@ -18,22 +22,29 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-class AgentResponse:
-    """에이전트 응답"""
+class _ActionSchema(BaseModel):
+    """LLM 응답의 각 액션에 대해 구조화된 출력을 강제하기 위한 스키마.
 
-    def __init__(self, reasoning: Optional[str], actions: List[Dict], raw_response: str):
-        self.reasoning = reasoning
-        self.actions = actions
-        self.raw_response = raw_response
+    params는 도구마다 모양이 다르므로 여기서는 최소한의 형태(dict)만 강제하고,
+    개별 도구별 필수 파라미터 검증은 기존처럼 ToolExecutor/SecurityValidator가 담당한다."""
 
-    def __repr__(self) -> str:
-        return (
-            f"<AgentResponse reasoning={bool(self.reasoning)} "
-            f"actions={len(self.actions)}>"
-        )
+    tool: str
+    params: Dict[str, Any] = {}
 
 
-class OllamaAgentClient:
+class _AgentResponseSchema(BaseModel):
+    """Ollama의 constrained decoding(`format` 파라미터)에 넘길 응답 스키마.
+
+    이걸 강제하면 모델이 마크다운 코드펜스를 섞거나 따옴표/줄바꿈 이스케이프를
+    틀려서 JSON 파싱 자체가 깨지는 실패(오늘 라이브 에이전트 위임에서 반복 관찰됨)를
+    샘플링 단계에서부터 구조적으로 막는다. 필드 값 자체의 정확성(예: 존재하지 않는
+    파라미터를 지어내는 것)까지 막아주진 않는다."""
+
+    reasoning: Optional[str] = None
+    actions: List[_ActionSchema] = []
+
+
+class OllamaAgentClient(LLMClient):
     """
     Ollama를 사용한 에이전트 LLM 클라이언트
 
@@ -114,11 +125,13 @@ class OllamaAgentClient:
         logger.info(f"Requesting next actions from LLM (history: {len(conversation_history)} messages)")
 
         try:
-            # Ollama 호출
+            # Ollama 호출 — format에 JSON 스키마를 넘겨 샘플링 단계에서부터 문법적으로
+            # 유효한 JSON만 생성하도록 강제한다(Ollama 0.3.0+ Structured Outputs).
             response = self.client.chat(
                 model=self.model,
                 messages=messages,
                 options={"temperature": self.temperature},
+                format=_AgentResponseSchema.model_json_schema(),
                 stream=False
             )
 
@@ -274,10 +287,10 @@ Available tools and their REQUIRED parameters:
 - read_file: {"path": "src/main.py"}
 - edit_file: {"path": "src/main.py", "old_string": "old code", "new_string": "new code"}
 - create_file: {"path": "src/new_file.py", "content": "file content here"}
-- delete_file: {"path": "src/old_file.py"}
+- delete_file: {"path": "src/old_file.py", "confirm": true}
 - list_files: {"path": "."} or {"path": "src"}
 - search_code: {"pattern": "def hello", "path": "."}
-- run_tests: {"path": "tests/"}
+- run_tests: {"scope": "all"} or {"scope": "directory", "path": "tests/"} or {"scope": "filter", "filter": "test_name"}
 - run_command: {"command": "pytest tests/"}
 - finish: {"message": "Task completed successfully"}
 

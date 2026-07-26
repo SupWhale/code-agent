@@ -7,7 +7,7 @@ Application Settings
 
 from pathlib import Path
 from functools import lru_cache
-from typing import Dict, List, Literal
+from typing import Dict, List, Literal, Optional
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -26,7 +26,10 @@ class Settings(BaseSettings):
     environment: Literal["development", "production"] = "production"
 
     ollama_host: str = "http://localhost:11434"
+    llm_provider: str = "ollama"
     model_name: str = "qwen2.5-coder:7b"
+    # None이면 main.py가 저장소에 포함된 prompts/system_prompt.txt를 기본값으로 사용한다.
+    system_prompt_path: Optional[Path] = None
     workspace_path: Path = Path(".")
     max_file_size: int = 104_857_600  # 100MB
     api_port: int = 8000
