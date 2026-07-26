@@ -32,6 +32,11 @@ services:
       - "8000:8000"
     volumes:
       - ./workspace:/workspace
+      # 에이전트가 실제 git 저장소를 직접 수정할 수 있도록 마운트 (셀프 리팩토링용).
+      # SecurityValidator의 strict_mode 화이트리스트(src/tests/prompts/scripts)와
+      # BLOCKED_PATHS(.git 등)가 그대로 적용되므로 워크스페이스 밖이나 .git은 못 건드림.
+      # 필요 없을 땐 이 줄을 지우고 재배포하세요.
+      - ..:/repo
     deploy:
       resources:
         limits:
