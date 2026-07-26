@@ -157,6 +157,15 @@ class TaskManager:
                     "error": str(e),
                     "timestamp": datetime.now().isoformat()
                 }
+            finally:
+                # SSE/WebSocket 클라이언트가 실행 도중 연결을 끊으면 asyncio.CancelledError가
+                # 발생한다. Python 3.8+에서 CancelledError는 BaseException 계열이라 위
+                # except Exception에는 잡히지 않고 그대로 전파되는데, 그 경우에도 태스크가
+                # 영구 RUNNING으로 남지 않도록 여기서 한 번 더 상태를 확인해 정리한다.
+                # CancelledError 자체는 삼키면 안 되므로 여기서 catch하거나 raise/return하지
+                # 않는다 — finally를 그냥 통과시키면 원래 예외가 알아서 계속 전파된다.
+                if task.status == TaskStatus.RUNNING:
+                    task.fail("Task execution was interrupted")
 
     def delete_task(self, task_id: str) -> bool:
         """
