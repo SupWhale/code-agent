@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 from ..auth import AuthenticatedKey, require_api_key
 from ..config import get_settings
 from ..rate_limit import limiter
+from ..utils.prompts import load_prompt
 from ..utils.responses import UnicodeJSONResponse
 from .files import validate_path
 
@@ -100,7 +101,7 @@ def init_generate_router(async_client: ollama.AsyncClient, model_name: str, work
 
         try:
             # 프롬프트 구성
-            system_prompt = f"당신은 {body.language} 전문 개발자입니다. 사용자의 요청에 따라 고품질 코드를 작성해주세요."
+            system_prompt = load_prompt("generate/code_gen_system.txt").format(language=body.language)
             full_prompt = f"{system_prompt}\n\n사용자 요청: {body.prompt}"
 
             if body.stream:
@@ -174,12 +175,12 @@ def init_generate_router(async_client: ollama.AsyncClient, model_name: str, work
             async with aiofiles.open(file_path, "r", encoding="utf-8") as f:
                 content = await f.read()
 
-            # 분석 프롬프트 구성
+            # 분석 프롬프트 구성 (prompts/generate/analyze_*.txt에서 로드)
             analysis_prompts = {
-                "general": "다음 코드를 분석하고 개선점을 제안해주세요.",
-                "security": "다음 코드의 보안 취약점을 분석해주세요.",
-                "performance": "다음 코드의 성능 문제를 분석하고 최적화 방안을 제안해주세요.",
-                "style": "다음 코드의 스타일과 가독성을 분석해주세요."
+                "general": load_prompt("generate/analyze_general.txt"),
+                "security": load_prompt("generate/analyze_security.txt"),
+                "performance": load_prompt("generate/analyze_performance.txt"),
+                "style": load_prompt("generate/analyze_style.txt"),
             }
 
             prompt = analysis_prompts.get(request.analysis_type, analysis_prompts["general"])
@@ -233,16 +234,12 @@ def init_generate_router(async_client: ollama.AsyncClient, model_name: str, work
             # 파일 목록 구성
             file_list = "\n".join([f"- {f.relative_to(project_path)}" for f in files[:50]])  # 최대 50개
 
-            # 분석 프롬프트
-            prompt = f"""다음 프로젝트를 분석해주세요:
-
-프로젝트 경로: {request.project_path}
-파일 개수: {len(files)}개
-
-주요 파일:
-{file_list}
-
-프로젝트 구조, 아키텍처, 개선점을 분석해주세요."""
+            # 분석 프롬프트 (prompts/generate/analyze_project.txt에서 로드)
+            prompt = load_prompt("generate/analyze_project.txt").format(
+                project_path=request.project_path,
+                file_count=len(files),
+                file_list=file_list
+            )
 
             # Ollama로 분석
             response = await async_client.chat(

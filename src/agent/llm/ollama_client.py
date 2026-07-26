@@ -13,6 +13,7 @@ import logging
 from pydantic import BaseModel
 
 from .base import AgentResponse, LLMClient
+from ...utils.prompts import load_prompt
 
 try:
     import ollama
@@ -269,45 +270,19 @@ class OllamaAgentClient(LLMClient):
             return False
 
     def _default_system_prompt(self) -> str:
-        """기본 시스템 프롬프트"""
-        return """You are an AI coding agent that helps users modify code.
-
-You can only respond with JSON in this format:
-{
-  "reasoning": "Why you're taking this action (optional)",
-  "actions": [
-    {
-      "tool": "tool_name",
-      "params": {"param1": "value1"}
-    }
-  ]
-}
-
-Available tools and their REQUIRED parameters:
-- read_file: {"path": "src/main.py"}
-- edit_file: {"path": "src/main.py", "old_string": "old code", "new_string": "new code"}
-- create_file: {"path": "src/new_file.py", "content": "file content here"}
-- delete_file: {"path": "src/old_file.py", "confirm": true}
-- list_files: {"path": "."} or {"path": "src"}
-- search_code: {"pattern": "def hello", "path": "."}
-- run_tests: {"scope": "all"} or {"scope": "directory", "path": "tests/"} or {"scope": "filter", "filter": "test_name"}
-- run_command: {"command": "pytest tests/"}
-- finish: {"message": "Task completed successfully"}
-
-CRITICAL PATH RULES:
-1. "path" parameter is ALWAYS required for all file tools
-2. ALWAYS use relative paths (e.g., "src/main.py", NOT "/workspace/src/main.py")
-3. The workspace root is shown as "Current workspace" in this prompt
-4. Files are relative to that workspace root
-
-CRITICAL COMPLETION RULE:
-- After ALL requested actions succeed, you MUST call the finish tool immediately.
-- Do NOT repeat an action that already succeeded.
-- Do NOT call create_file if the file was already created successfully.
-
-Example of correct workflow:
-1. User asks to create a file → call create_file
-2. Tool result shows success → call finish
-{"reasoning": "File created successfully", "actions": [{"tool": "finish", "params": {"message": "Created the file as requested"}}]}
-
-Always respond with valid JSON. No markdown, no explanations outside JSON."""
+        """system_prompt_path가 안 주어졌거나 그 경로에 파일이 없을 때 쓰는 기본
+        시스템 프롬프트. 내용은 prompts/fallback_system_prompt.txt에 있다 — 파이썬
+        소스에 프롬프트를 하드코딩하지 않기 위해 파일로 분리."""
+        try:
+            return load_prompt("fallback_system_prompt.txt")
+        except FileNotFoundError:
+            # prompts/ 디렉토리 자체가 통째로 없는 극단적인 경우에만 쓰이는
+            # 최후의 안전망 — 여기 있는 것만으로 최소한 유효한 JSON은 뱉게 한다.
+            logger.error(
+                "prompts/fallback_system_prompt.txt를 찾을 수 없습니다. "
+                "최소한의 인라인 프롬프트로 대체합니다."
+            )
+            return (
+                'Respond ONLY with JSON: {"reasoning": "...", "actions": '
+                '[{"tool": "finish", "params": {"message": "..."}}]}'
+            )
