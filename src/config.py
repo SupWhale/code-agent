@@ -14,6 +14,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    """환경 변수에서 로드되는 앱 설정. `*_raw` 필드는 pydantic-settings가 env var를
+    그대로 담는 곳이고, 파싱된 형태(리스트/딕셔너리)는 아래 @property로 노출한다 —
+    BaseSettings 필드 자체를 리스트/딕셔너리로 선언하면 커스텀 콤마 구분 포맷을
+    자동 파싱해주지 않기 때문."""
+
     model_config = SettingsConfigDict(
         env_file=".env", extra="ignore", protected_namespaces=(), populate_by_name=True
     )
@@ -42,10 +47,13 @@ class Settings(BaseSettings):
     @field_validator("workspace_path")
     @classmethod
     def _resolve_workspace(cls, v: Path) -> Path:
+        """상대 경로(기본값 ".")를 절대 경로로 고정 — 이후 os.chdir 등으로 CWD가
+        바뀌어도 워크스페이스 경계 검증(SecurityValidator)이 흔들리지 않게 한다."""
         return v.resolve()
 
     @property
     def cors_allowed_origins(self) -> List[str]:
+        """빈 값이면 크로스오리진 브라우저 접근을 전혀 허용하지 않는다(CLI/서버 간 통신엔 불필요)."""
         return [o.strip() for o in self.cors_allowed_origins_raw.split(",") if o.strip()]
 
     @property
@@ -65,6 +73,8 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _validate_production_requirements(self) -> "Settings":
+        """fail-fast 게이트 — 여기서 막지 않으면 인증 없이 배포되거나 워크스페이스가
+        없는 채로 기동해서 첫 요청이 들어올 때야 실패가 드러난다."""
         if self.environment == "production" and not self.api_keys:
             raise ValueError(
                 "API_KEYS가 설정되지 않았습니다. 프로덕션 환경에서는 최소 1개 이상의 API 키가 "
@@ -78,4 +88,7 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
+    """프로세스 생애주기 동안 한 번만 읽고 캐시한다 — 즉, 컨테이너를 재시작하지 않고는
+    환경 변수를 바꿔도 반영되지 않는다(예: API_KEYS 회수는 재배포가 필요함).
+    테스트에서 env를 바꿔가며 검증할 땐 get_settings.cache_clear()를 호출해야 한다."""
     return Settings()

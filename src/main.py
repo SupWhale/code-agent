@@ -152,6 +152,9 @@ async def shutdown_event():
 
 # Custom JSON Response with UTF-8 support
 class UnicodeJSONResponse(JSONResponse):
+    """기본 JSONResponse는 비-ASCII 문자를 \\uXXXX로 이스케이프한다 — 한글 응답을
+    사람이 읽을 수 있는 그대로 내려주기 위해 ensure_ascii=False로 오버라이드."""
+
     def render(self, content: Any) -> bytes:
         return json.dumps(
             content,
@@ -162,8 +165,10 @@ class UnicodeJSONResponse(JSONResponse):
         ).encode("utf-8")
 
 
-# Pydantic models
+# Pydantic models — 여기 docstring은 FastAPI가 /docs(Swagger UI)에 그대로 노출한다
 class CodeGenerationRequest(BaseModel):
+    """POST /api/v1/generate 요청 본문. 에이전트 툴 실행 없이 LLM에 직접 프롬프트를 던지는 단발성 코드 생성용."""
+
     prompt: str = Field(..., description="코드 생성 프롬프트")
     language: str = Field(default="python", description="프로그래밍 언어")
     temperature: float = Field(default=0.1, ge=0.0, le=2.0, description="생성 온도")
@@ -171,11 +176,15 @@ class CodeGenerationRequest(BaseModel):
 
 
 class FileAnalysisRequest(BaseModel):
+    """POST /api/v1/analyze/file 요청 본문."""
+
     file_path: str = Field(..., description="분석할 파일 경로")
     analysis_type: str = Field(default="general", description="분석 유형: general, security, performance, style")
 
 
 class ProjectAnalysisRequest(BaseModel):
+    """POST /api/v1/analyze/project 요청 본문."""
+
     project_path: str = Field(default="/", description="프로젝트 경로")
     include_patterns: List[str] = Field(default=["**/*.py", "**/*.js", "**/*.ts"], description="포함 패턴")
     exclude_patterns: List[str] = Field(default=["**/node_modules/**", "**/__pycache__/**", "**/venv/**"], description="제외 패턴")
@@ -630,6 +639,12 @@ async def analyze_project(request: ProjectAnalysisRequest, identity: Authenticat
 
 # WebSocket 연결 관리
 class ConnectionManager:
+    """/ws/chat(순수 LLM 채팅, 툴 실행 없음) 전용 연결·대화 기록 관리자.
+
+    에이전트 툴 실행이 필요한 워크스페이스 세션은 이것과 별개로
+    agent/session_manager.py의 SessionManager가 담당한다 — 이 클래스는
+    디스크에 아무것도 쓰지 않는 순수 인메모리 채팅 히스토리다."""
+
     def __init__(self):
         self.active_connections: List[WebSocket] = []
         self.conversation_history: Dict[str, List[Dict]] = {}

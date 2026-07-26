@@ -17,16 +17,25 @@ from .config import get_settings
 
 logger = logging.getLogger(__name__)
 
+# HTTPBearer는 Starlette Request에 의존하므로 HTTP 라우트에서만 쓸 수 있다 — WebSocket
+# 라우트에 FastAPI dependency(라우터 레벨 dependencies=[...] 포함)로 걸면
+# "HTTPBearer.__call__() missing 1 required positional argument: 'request'"로 핸드셰이크
+# 자체가 500으로 죽는다. 그래서 WebSocket 인증은 이 스킴을 쓰지 않고 authenticate_websocket()으로
+# accept() 전에 수동 검증한다.
 _bearer_scheme = HTTPBearer(auto_error=False)
 
 
 @dataclass
 class AuthenticatedKey:
+    """인증 성공 시 dependency가 반환하는 신원 정보."""
+
     key: str
-    scope: str  # "admin" | "user"
+    scope: str  # "admin" | "user" — admin만 공유 워크스페이스 전역에 영향을 주는 엔드포인트 사용 가능
 
 
 def _dev_bypass_identity() -> Optional[AuthenticatedKey]:
+    """ENVIRONMENT=development이고 API_KEYS가 비어 있을 때만 인증을 건너뛴다.
+    production에서는 config.py가 API_KEYS 없이 기동 자체를 막으므로 이 경로를 타지 않는다."""
     settings = get_settings()
     if settings.environment == "development" and not settings.api_keys:
         return AuthenticatedKey(key="dev", scope="admin")
@@ -34,6 +43,8 @@ def _dev_bypass_identity() -> Optional[AuthenticatedKey]:
 
 
 def _match_key(token: str) -> Optional[AuthenticatedKey]:
+    """hmac.compare_digest로 비교해 키 길이/내용에 따라 응답 시간이 달라지는
+    타이밍 공격을 막는다 (`==` 비교는 첫 불일치 바이트에서 조기 종료되어 취약함)."""
     settings = get_settings()
     for known_key, scope in settings.api_keys.items():
         if hmac.compare_digest(token, known_key):

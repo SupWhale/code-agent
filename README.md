@@ -37,10 +37,18 @@ FastAPI · Uvicorn · Pydantic v2 · Ollama · Prometheus/Grafana/Alertmanager/c
 - 배포 스크립트를 현지 빌드 방식에서 GHCR 태그 pull 방식으로 전환, `rollback.sh`는 `git reset --hard`/`rm -rf` 대신 이전 태그로 안전하게 롤백
 
 **진행 예정 (Phase 3+)**
-- 첫 공개 배포 (실제 도메인 필요)
+- 첫 공개 배포 (실제 도메인 필요 — LAN 환경 배포/실사용 검증은 완료)
 - 린트/타입체크(ruff/mypy) 도입, 라우트/오케스트레이터 루프 테스트 확충
 - 의존성/이미지 취약점 스캔
 - Redis 기반 상태 공유(현재 `WORKERS=1` 고정 — 태스크/세션 상태가 프로세스 메모리에 있음)
+
+## 실전 배포에서 발견한 문제
+
+홈서버(LAN)에 실제로 배포해보면서 코드 리뷰나 유닛 테스트만으로는 안 드러나는 문제들을 발견하고 고쳤습니다. 그대로 커밋 히스토리에 남겨뒀습니다.
+
+1. **WebSocket 라우트가 인증 미들웨어에 의해 깨짐** — 라우터 레벨 `dependencies=[Depends(require_api_key)]`가 내부적으로 HTTP 전용 `HTTPBearer`(Starlette `Request` 필요)에 의존하는데, 같은 라우터에 등록된 WebSocket 엔드포인트에도 그대로 적용되면서 핸드셰이크 자체가 `TypeError`로 죽고 클라이언트에는 HTTP 500만 찍혔습니다. 유닛 테스트는 HTTP 엔드포인트만 돌렸어서 못 잡았고, 실제로 WebSocket 클라이언트를 붙여보고서야 발견 → HTTP 엔드포인트마다 개별 dependency로 바꾸고, WebSocket은 `accept()` 전 수동 인증(`authenticate_websocket()`)으로 분리.
+2. **non-root 전환 후 기존 볼륨 권한 충돌** — 컨테이너를 non-root(uid 1000)로 바꾼 뒤, 예전에 root로 실행되던 컨테이너가 만들어둔 호스트 바인드 마운트(`deployment/workspace/`)를 새 프로세스가 쓰지 못해 기동 직후 크래시 루프에 빠짐 → 배포 스크립트가 실제 쓰기 가능 여부를 사전 점검하고, 안 되면 `sudo chmod` 안내 후 종료하도록 방어.
+3. **배포 스크립트 자체의 버그 3종** — 실행 권한(+x) 누락, `docker compose`가 대상 서비스와 무관하게 파일 전체를 먼저 해석해서 `DOMAIN` 없이는 아무 서비스도 못 띄우던 문제, 자동으로 채워둔 placeholder 도메인(`lan-test.local`)을 "진짜 도메인 설정됨"으로 오인식해 TLS를 켜려던 로직 오류.
 
 ## 로컬 실행
 

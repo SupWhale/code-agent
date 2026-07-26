@@ -18,6 +18,8 @@ _request_id_ctx: contextvars.ContextVar[str] = contextvars.ContextVar("request_i
 
 
 def get_request_id() -> str:
+    """현재 asyncio 태스크에 바인딩된 request_id 조회. 미들웨어/bind_new_request_id()가
+    호출되기 전이면 기본값 "-"."""
     return _request_id_ctx.get()
 
 
@@ -29,12 +31,18 @@ def bind_new_request_id() -> str:
 
 
 class _RequestIDFilter(logging.Filter):
+    """모든 로그 레코드에 현재 request_id를 주입 — 로거를 개별적으로 안 고쳐도
+    logging.info(...) 호출 어디서든 자동으로 request_id가 붙게 하는 훅."""
+
     def filter(self, record: logging.LogRecord) -> bool:
         record.request_id = _request_id_ctx.get()
         return True
 
 
 class _JsonFormatter(logging.Formatter):
+    """한 줄짜리 JSON 로그 — 로그 수집기(예: Loki, CloudWatch)가 필드 단위로
+    파싱/검색할 수 있도록 평문 대신 구조화된 포맷으로 출력한다."""
+
     def format(self, record: logging.LogRecord) -> str:
         payload = {
             "timestamp": datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
@@ -49,6 +57,9 @@ class _JsonFormatter(logging.Formatter):
 
 
 def configure_logging(level: str) -> None:
+    """루트 로거의 기존 핸들러를 전부 걷어내고 JSON 핸들러로 교체한다 — uvicorn/기타
+    라이브러리가 자체 핸들러를 먼저 붙여놓는 경우가 있어, 앱 시작 시 한 번만 호출해
+    모든 로그가 같은 포맷을 쓰도록 강제한다."""
     handler = logging.StreamHandler()
     handler.setFormatter(_JsonFormatter())
     handler.addFilter(_RequestIDFilter())
