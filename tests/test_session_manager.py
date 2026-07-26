@@ -1,10 +1,11 @@
 """SessionManager 단위 테스트"""
 
+import asyncio
 from datetime import datetime, timedelta
 
 import pytest
 
-from src.agent.session_manager import SessionManager
+from src.agent.session_manager import SessionManager, periodic_session_cleanup
 
 
 @pytest.fixture
@@ -92,3 +93,18 @@ def test_list_sessions_includes_disk_sessions(manager):
     sessions = manager.list_sessions()
     ids = {s.session_id for s in sessions}
     assert ids == {"s1", "s2"}
+
+
+@pytest.mark.asyncio
+async def test_periodic_session_cleanup_calls_repeatedly_and_cancels_cleanly(manager):
+    calls = []
+    manager.cleanup_expired_sessions = lambda timeout_minutes=30: calls.append(1)
+
+    task = asyncio.create_task(periodic_session_cleanup(manager, interval_seconds=0.01))
+    await asyncio.sleep(0.05)
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert len(calls) >= 2

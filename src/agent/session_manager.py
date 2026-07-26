@@ -8,6 +8,7 @@ from typing import Dict, Optional, List
 from dataclasses import dataclass, field
 from pathlib import Path
 from datetime import datetime, timedelta
+import asyncio
 import uuid
 import shutil
 import logging
@@ -340,3 +341,19 @@ class SessionManager:
             f"active={stats['active_sessions']} "
             f"files={stats['total_files']}>"
         )
+
+
+async def periodic_session_cleanup(session_manager: "SessionManager", interval_seconds: int = 300) -> None:
+    """
+    session_manager.cleanup_expired_sessions()를 주기적으로 호출하는 백그라운드 루프.
+
+    main.py의 startup_event에서 asyncio.create_task()로 띄우고, shutdown_event에서
+    task.cancel()로 정리한다. asyncio.CancelledError는 여기서 잡지 않고 그대로
+    전파시켜 task.cancel()이 정상적으로 루프를 끝낼 수 있게 한다.
+    """
+    while True:
+        await asyncio.sleep(interval_seconds)
+        try:
+            session_manager.cleanup_expired_sessions()
+        except Exception:
+            logger.exception("Periodic session cleanup failed")

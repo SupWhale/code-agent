@@ -23,7 +23,7 @@ from .rate_limit import limiter
 from .agent.executor import ToolExecutor
 from .agent.orchestrator import AgentOrchestrator
 from .agent.task_manager import TaskManager
-from .agent.session_manager import SessionManager
+from .agent.session_manager import SessionManager, periodic_session_cleanup
 from .agent.security.validator import SecurityValidator
 from .agent.llm.ollama_client import OllamaAgentClient
 from .routes.agent import init_agent_router
@@ -44,6 +44,9 @@ OLLAMA_HOST = settings.ollama_host
 MODEL_NAME = settings.model_name
 WORKSPACE_PATH = settings.workspace_path
 MAX_FILE_SIZE = settings.max_file_size
+
+# 만료된 세션 정리 주기 (초) — SessionManager.cleanup_expired_sessions()를 이 간격으로 호출한다
+SESSION_CLEANUP_INTERVAL_SECONDS = 300
 
 # Prometheus metrics
 api_response_time = Histogram('api_response_time_seconds', 'API response time', ['method', 'endpoint'])
@@ -122,6 +125,11 @@ async def startup_event():
     sessions_path = WORKSPACE_PATH / ".sessions"
     session_manager = SessionManager(base_workspace_path=str(sessions_path))
 
+    # 6-1. 만료된 세션을 주기적으로 정리하는 백그라운드 태스크 시작
+    app.state.cleanup_task = asyncio.create_task(
+        periodic_session_cleanup(session_manager, SESSION_CLEANUP_INTERVAL_SECONDS)
+    )
+
     # 7. Agent API 라우터 등록
     agent_router = init_agent_router(task_manager)
     app.include_router(agent_router)
@@ -153,6 +161,14 @@ async def shutdown_event():
     실제 대기는 uvicorn --timeout-graceful-shutdown(+ docker stop_grace_period)이 담당한다.
     """
     logger.info("Application shutdown initiated")
+
+    cleanup_task = getattr(app.state, "cleanup_task", None)
+    if cleanup_task is not None:
+        cleanup_task.cancel()
+        try:
+            await cleanup_task
+        except asyncio.CancelledError:
+            pass
 
 
 # Ollama client
