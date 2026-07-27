@@ -672,17 +672,21 @@ def _fill_local_tree(tree: Tree, root: Path, current: Path, patterns: List[str],
 # ── Ask (one-shot) ────────────────────────────────────────────────────────────
 
 @app.command()
-def ask(request: str = typer.Argument(..., help="에이전트에게 요청할 작업")):
+def ask(
+    request: str = typer.Argument(..., help="에이전트에게 요청할 작업"),
+    model: Optional[str] = typer.Option(None, "--model", "-m", help="이 요청에만 쓸 모델 (생략 시 서버 기본 모델)"),
+):
     """에이전트에게 작업을 요청하고 결과를 스트리밍으로 출력"""
     sid = _require_session()
-    asyncio.run(_run_ask(sid, request))
+    asyncio.run(_run_ask(sid, request, model=model))
 
 
-async def _run_ask(session_id: str, user_request: str):
+async def _run_ask(session_id: str, user_request: str, model: Optional[str] = None):
     client = _client()
-    console.print(Panel(f"[bold]{user_request}[/]", title="[cyan]요청[/]", border_style="cyan"))
+    title = "[cyan]요청[/]" if not model else f"[cyan]요청[/] [dim](model: {model})[/]"
+    console.print(Panel(f"[bold]{user_request}[/]", title=title, border_style="cyan"))
     try:
-        async for msg in client.run_agent(session_id, user_request):
+        async for msg in client.run_agent(session_id, user_request, model=model):
             _render_event(msg)
     except Exception as e:
         err_console.print(f"\n[!] 오류: {e}")
@@ -779,7 +783,7 @@ def chat():
     sid = _require_session()
     console.print(Panel(
         "[bold]AI 코딩 에이전트 대화 모드[/]\n"
-        "[dim]종료: exit / quit / Ctrl+C  |  커맨드: /files  /show <path>  /help[/]",
+        "[dim]종료: exit / quit / Ctrl+C  |  커맨드: /files  /show <path>  /model [name]  /help[/]",
         border_style="blue",
     ))
     try:
@@ -789,9 +793,14 @@ def chat():
     except Exception:
         pass
 
+    # 대화 중간에 /model로 바꿀 수 있는 이번 세션의 모델 오버라이드.
+    # None이면 서버 기본 모델을 그대로 씀.
+    state = {"model": None}
+
     while True:
         try:
-            user_input = Prompt.ask("[bold cyan]>[/]")
+            prompt_label = "[bold cyan]>[/]" if not state["model"] else f"[bold cyan]({state['model']})>[/]"
+            user_input = Prompt.ask(prompt_label)
         except (KeyboardInterrupt, EOFError):
             console.print("\n[dim]종료[/]")
             break
@@ -804,17 +813,30 @@ def chat():
             break
 
         if stripped.startswith("/"):
-            _handle_slash_command(stripped, sid)
+            _handle_slash_command(stripped, sid, state)
             continue
 
-        asyncio.run(_run_ask(sid, stripped))
+        asyncio.run(_run_ask(sid, stripped, model=state["model"]))
         console.print()
 
 
-def _handle_slash_command(stripped: str, sid: str):
+def _handle_slash_command(stripped: str, sid: str, state: dict):
     parts = stripped[1:].split()
     cmd = parts[0] if parts else ""
     client = _client()
+
+    if cmd == "model":
+        if len(parts) > 1 and parts[1] != "default":
+            state["model"] = parts[1]
+            console.print(f"[green]이후 메시지부터 model={parts[1]}[/] 로 실행합니다.")
+        elif len(parts) > 1 and parts[1] == "default":
+            state["model"] = None
+            console.print("[green]서버 기본 모델로 되돌렸습니다.[/]")
+        else:
+            current = state["model"] or "[dim](서버 기본값)[/]"
+            console.print(f"현재 모델: {current}")
+            console.print("[dim]변경: /model <이름>  |  기본값으로 되돌리기: /model default[/]")
+        return
 
     if cmd == "files":
         try:
@@ -903,6 +925,7 @@ def _handle_slash_command(stripped: str, sid: str):
             "[dim]/local ls [dir][/]    — 로컬 파일 구조 트리\n"
             "[dim]/sync [dir][/]        — 로컬 → 서버 동기화\n"
             "[dim]/pull [path][/]       — 서버 → 로컬 저장 (생략 시 전체)\n"
+            "[dim]/model [이름][/]       — 대화 중 사용할 모델 확인/변경 (인자 없으면 현재 모델 표시, 'default'면 서버 기본값으로)\n"
             "[dim]/status[/]            — 서버 상태\n"
             "[dim]exit[/]               — 종료"
         )

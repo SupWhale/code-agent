@@ -311,17 +311,21 @@ def init_vscode_router(
                     # Agent 작업 요청
                     user_request = message.get("user_request")
                     context = message.get("context", {})
+                    model = message.get("model")  # 생략 시 서버 기본 모델 사용
 
-                    # TaskManager를 통해 작업 생성
+                    # TaskManager를 통해 작업 생성 — 채팅 도중에도 메시지마다
+                    # model을 다르게 보내면 그 턴만 다른 모델로 실행된다.
                     task = task_manager.create_task(
                         task_id=f"{session_id}-{datetime.now().timestamp()}",
                         user_request=user_request,
-                        workspace_path=str(session.workspace_path)
+                        workspace_path=str(session.workspace_path),
+                        model=model
                     )
 
                     await websocket.send_json({
                         "type": "task_created",
-                        "task_id": task.task_id
+                        "task_id": task.task_id,
+                        "model": task.model
                     })
 
                     # 작업 실행 및 이벤트 스트리밍

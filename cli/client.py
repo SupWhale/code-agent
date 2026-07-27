@@ -90,9 +90,14 @@ class AgentClient:
 
     # ── Agent (WebSocket streaming) ──────────────────────────────────────────
 
-    async def run_agent(self, session_id: str, user_request: str) -> AsyncIterator[dict]:
+    async def run_agent(
+        self, session_id: str, user_request: str, model: Optional[str] = None
+    ) -> AsyncIterator[dict]:
         """
         WebSocket으로 에이전트 실행 — 이벤트를 비동기 yield
+
+        Args:
+            model: 이 요청에만 쓸 모델 (생략 시 서버 기본 모델)
         """
         uri = f"{self.ws_url}/api/v1/vscode/ws/{session_id}"
         if self.api_key:
@@ -105,10 +110,13 @@ class AgentClient:
                 pass  # 정상
 
             # 작업 요청 전송
-            await ws.send(json.dumps({
+            request_payload = {
                 "type": "agent_request",
                 "user_request": user_request,
-            }))
+            }
+            if model:
+                request_payload["model"] = model
+            await ws.send(json.dumps(request_payload))
 
             # 스트림 수신
             async for raw in ws:
