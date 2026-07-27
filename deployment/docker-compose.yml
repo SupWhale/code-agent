@@ -46,7 +46,10 @@ services:
     stop_grace_period: 30s
     environment:
       - OLLAMA_HOST=http://ollama:11434
-      - MODEL_NAME=qwen2.5-coder:7b
+      # 이전엔 하드코딩돼 있어서 .env의 MODEL_NAME을 바꿔도 컨테이너에 반영되지
+      # 않는 버그가 있었다 — 이제 .env 값을 실제로 읽는다.
+      - MODEL_NAME=${MODEL_NAME:-qwen2.5-coder:7b}
+      - LLM_PROVIDER=${LLM_PROVIDER:-ollama}
       - API_PORT=8000
       - LOG_LEVEL=INFO
       - WORKSPACE_PATH=/workspace
