@@ -1,5 +1,4 @@
 -r requirements.txt
-pytest==7.4.3
-pytest-asyncio==0.21.1
+# pytest/pytest-asyncio/httpx는 이제 requirements.txt에 있음 (run_tests 에이전트 도구가
+# 프로덕션에서도 필요로 함) — 여기는 개발 전용 도구만 추가.
 pytest-cov==4.1.0
-httpx==0.27.2

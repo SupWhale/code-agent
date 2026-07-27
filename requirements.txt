@@ -9,3 +9,11 @@ websockets==12.0
 python-multipart==0.0.6
 mcp>=1.0.0
 slowapi==0.1.9
+
+# run_tests 에이전트 도구(src/agent/tools/test_tools.py)가 프로덕션 컨테이너 안에서
+# 서브프로세스로 pytest를 직접 실행한다 — 이게 requirements-dev.txt에만 있어서
+# 프로덕션 이미지엔 pytest 자체가 없었고, run_tests가 항상
+# "[Errno 2] No such file or directory"로 실패하고 있었다(2026-07-27 실측).
+pytest==7.4.3
+pytest-asyncio==0.21.1
+httpx==0.27.2
