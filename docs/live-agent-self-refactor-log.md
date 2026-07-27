@@ -99,16 +99,22 @@ JSON 파싱 실패율이 줄어드는지가 핵심 관찰 포인트.
 
 ## 6. 별도로 확인이 필요한 인프라 이슈
 
-- **`run_tests` 툴이 서버 컨테이너에서 매번 `"Failed to run tests: [Errno 2] No such file or directory"`로 실패함** (파라미터를 정확히 `{"scope": "all"}`로 줘도 동일). pytest가 컨테이너 PATH에 없거나 실행 경로 문제로 추정 — 실제 원인 확인 필요. 이게 고쳐지지 않으면 서버 에이전트가 자기 작업을 스스로 검증할 방법이 없다는 뜻이라, 신뢰도 문제를 더 악화시킴.
+- ~~`run_tests` 툴이 서버 컨테이너에서 매번 `"Failed to run tests: [Errno 2] No such file or directory"`로 실패함~~ — **2026-07-27 해결.** 원인은 두 가지였다: ① `pytest`가 `requirements-dev.txt`에만 있고 프로덕션 이미지가 설치하는 `requirements.txt`엔 없어서 컨테이너에 `pytest` 자체가 없었음(커밋 `7816fde`). ② 그걸 고친 뒤에도 bare `pytest` 실행 파일로 띄우면 워크스페이스 루트가 `sys.path`에 안 들어가서 `from src.foo import bar` 같은 import가 전부 `ModuleNotFoundError`로 깨졌음 — `python -m pytest`로 바꿔서 해결(커밋 `a151a09`). 자세한 재현/검증 과정은 8장 eval log의 2026-07-27 항목 참고.
 - **알려진 좀비 태스크**: `task_id="verify-repo-mount"`가 2026-07-26 07:13:32부터 `running` 상태로 영구 고착(이번 세션에서 고친 버그 2 이전에 생긴 것이라 이번 수정으로 자동 해소되지 않음 — 삭제도 재실행도 안 됨, 그냥 폐기해야 함).
-- **서버 `/repo`의 부분 반영 상태**: 이번 위임 시도 과정에서 `src/agent/session_manager.py`에 `import asyncio` 한 줄만 추가된 상태로 남아있음(로컬에는 이미 완성본이 커밋됨). 다음 `git pull` 전에 그 호스트에서 `git status`로 확인 후 `git checkout -- .` 또는 `git stash`로 정리 권장.
+- ~~서버 `/repo`의 부분 반영 상태~~ — 2026-07-27에 훨씬 심한 버전으로 재발함: `/repo`가 Docker 빌드 컨텍스트와 동일 디렉토리라, 라이브 에이전트의 도구 호출 잔여물이 쌓이면서 `src/main.py`의 `app = FastAPI(...)`까지 사라져 컨테이너가 `Attribute "app" not found in module "src.main"`로 부팅조차 안 되는 사고로 이어짐. `git checkout -- .`로 커밋된 상태(이미 origin과 일치)로 되돌려 해결. **교훈**: `/repo`는 라이브 에이전트가 자유롭게 건드리는 공간이자 동시에 프로덕션 빌드 컨텍스트라는 이중 역할이 근본 위험 요인 — 재발 방지책(빌드 컨텍스트 분리, 또는 배포 전 `git status` 점검 자동화)을 고려할 필요가 있음.
+- **신규**: `qwen3.5:9b`가 `finish` 호출 시점에 응답이 잘리거나 완전히 빈 문자열을 반환하는 문제를 2/2 재현(8장 2026-07-27 A/B 비교 참고). "thinking" capability와 관련 있을 것으로 추정되나 미확인 — `num_ctx` 조정 등으로 다음에 조사 필요.
 
 ## 7. 관련 커밋
 
 - `e8e4966` — main.py 라우트를 `routes/files.py`, `generate.py`, `chat.py`로 분리, `task_manager`를 `app.state`로 이동
 - `596ab1f` — SSE/WebSocket 연결 끊김 시 태스크 영구 running 버그 수정
 - `2ef06d3` — 만료 세션 자동 정리 누락 버그 수정
-- (예정) — 모델 전략 패턴 + 검증/JSON 포맷 강화 (5장)
+- `4848f9f` — LLM 클라이언트 전략 패턴 + finish 소프트 검증 + JSON 툴콜 포맷 강화 (5장)
+- `02d01ec` — 하드코딩된 프롬프트를 `prompts/` 파일로 분리
+- `08954fb` — CLI 대화 중 `/model` 명령으로 모델 전환 지원
+- `b532d5e` — docker-compose.yml의 `MODEL_NAME` 하드코딩 수정
+- `7816fde` — `run_tests`용 `pytest`가 프로덕션 이미지에 없던 문제 수정
+- `a151a09` — `run_tests`의 워크스페이스 루트 import(`sys.path`) 문제 수정
 
 ## 8. 참고
 

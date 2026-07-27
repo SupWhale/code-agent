@@ -26,6 +26,39 @@
 
 ---
 
+## 2026-07-27
+
+### 모델 A/B 비교 — `qwen2.5-coder:7b` vs `qwen3.5:9b` vs `qwen3:14b`
+
+같은 태스크(`src/greet.py`에 `greet(name)` 함수 작성 → `tests/test_greet.py`에
+pytest 테스트 작성 → `run_tests`로 실제 실행 → 통과할 때만 `finish`)를 세 모델에
+동일하게 보내 비교. `/repo`가 아니라 `/workspace/model-ab-test-2026-07-27-*`라는
+격리된 워크스페이스를 새로 만들어 사용 — 실제 저장소를 다시 건드리는 사고를
+피하기 위함.
+
+**사전 조건**: 이 비교를 시작하기 전, `run_tests` 인프라 버그 2건을 발견해서
+고쳤다 (커밋 `7816fde`, `a151a09`) — ① 프로덕션 이미지에 `pytest` 자체가 설치돼
+있지 않았음(`requirements-dev.txt`에만 있었음), ② `pytest`를 bare 실행 파일로
+띄워서 워크스페이스 루트가 `sys.path`에 안 들어가 `from src.foo import bar`가
+전부 `ModuleNotFoundError`. 이 두 개를 고치기 전까진 세 모델 다 `run_tests`
+단계에서 무조건 막혔다 — 즉 오늘 이전의 신뢰도 문제 상당수는 모델 문제가 아니라
+이 인프라 버그 때문이었을 가능성이 있다.
+
+| task_id | model | 소요 시간 | 결과 | `finish` 자체보고 | 비고 |
+|---|---|---|---|---|---|
+| `ab-test-qwen3-14b-20260727c` | qwen3:14b | 85.4s | ✅ 성공 | 일치 (`suspicious: false`) | create_file ×2 → run_tests(pass) → finish, 4스텝 전부 깔끔 |
+| `ab-test-qwen35-9b-20260727d` | qwen3.5:9b | 24.0s (실패까지) | ❌ 실패 (재현 2/2) | (finish에 도달 못함) | create_file ×2, run_tests(pass)까지는 완벽하고 제일 빠른데, **`finish` 호출 시점에 응답이 잘리거나(`Unterminated string`) 완전히 빈 응답**이 와서 3연속 파싱 실패로 태스크 중단. 2번 다 똑같은 지점에서 재현됨 — `qwen3.5:9b`가 "thinking" capability(`/api/tags`에 `"thinking"` capability 있음)를 갖고 있어서, 내부 추론 토큰이 응답 예산을 많이 먹고 실제 JSON 출력이 잘리는 게 아닐까 추정. `num_ctx`를 명시적으로 안 키워준 게 원인일 가능성 있음 — 다음에 조사 필요 |
+| `ab-test-qwen35-9b-20260727c` | qwen3.5:9b | 45.4s (실패까지) | ❌ 실패 (1차 시도) | (finish에 도달 못함) | 위와 동일 증상, 최초 재현 |
+| `ab-test-qwen25-coder-7b-20260727c` | qwen2.5-coder:7b | 47.4s | ✅ 성공 | 일치 (`suspicious: false`) | create_file ×2 → run_tests(pass) → finish, 4스텝 전부 깔끔. `run_tests` 인프라 버그 수정 후 첫 완전 검증된 성공 사례 |
+
+**요약**: `run_tests` 인프라를 고치고 나니 `qwen2.5-coder:7b`와 `qwen3:14b`는 이
+정도 난이도(신규 파일 2개 + 테스트 실행)의 태스크를 **한 번에, 거짓 보고 없이**
+끝냈다 — 어제(2026-07-26) 같은 종류의 작업이 5번 중 5번 실패했던 것과 뚜렷이
+대비된다(시스템 프롬프트 연결 + JSON 구조화 출력 + run_tests 수정의 누적 효과로
+보임). `qwen3.5:9b`는 능력 자체는 괜찮아 보이는데(파일 내용은 항상 정확했음)
+`finish` 단계에서 응답이 잘리는 별도 문제가 있어 2/2 실패 — 모델 교체 이전에
+먼저 조사해볼 가치가 있는 이슈.
+
 ## 2026-07-26
 
 | task_id | model | 작업 유형 | 결과 | `finish` 자체보고 | 비고 |
