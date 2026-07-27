@@ -8,6 +8,7 @@ Provides test execution and command running capabilities:
 
 import asyncio
 import subprocess
+import sys
 from pathlib import Path
 from typing import Dict, Any, Optional
 import logging
@@ -60,8 +61,12 @@ class RunTestsTool(BaseTool):
 
         self.logger.info(f"Running tests (scope={scope}, timeout={timeout}s)")
 
-        # pytest 명령 구성
-        cmd = ["pytest", "-v", "--tb=short"]
+        # pytest 명령 구성 — 그냥 "pytest"가 아니라 "python -m pytest"로 실행해야
+        # cwd(워크스페이스 루트)가 sys.path에 들어가서 `from src.foo import bar`처럼
+        # 워크스페이스 루트 기준 임포트가 conftest.py 없이도 동작한다. 이 저장소
+        # 자신을 테스트할 땐 루트의 conftest.py가 이미 sys.path를 잡아줘서 안
+        # 드러났지만, 에이전트가 만드는 새 워크스페이스엔 그런 conftest.py가 없다.
+        cmd = [sys.executable, "-m", "pytest", "-v", "--tb=short"]
 
         if scope == "all":
             # 전체 테스트
