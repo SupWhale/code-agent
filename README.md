@@ -2,7 +2,7 @@
 
 LLM(Ollama + Qwen2.5-Coder) 기반 자율 코딩 에이전트. FastAPI 백엔드, CLI 클라이언트, MCP 서버로 구성되어 있으며 파일 읽기/수정, 코드 검색, 테스트 실행 등을 에이전트 루프로 자동 수행합니다.
 
-> 개인 포트폴리오 프로젝트입니다. 구조/아키텍처 상세는 [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md)를 참고하세요.
+> 개인 포트폴리오 프로젝트입니다. 구조/아키텍처 상세는 [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md), 네트워크·실시간 통신 인프라 상세는 [docs/infrastructure.md](docs/infrastructure.md)를 참고하세요.
 
 ## 핵심 기능
 

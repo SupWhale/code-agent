@@ -569,3 +569,4 @@ websockets
 - 에이전트 시스템 프롬프트: [prompts/system_prompt.txt](prompts/system_prompt.txt)
 - 프로덕션 배포 설정: [deployment/docker-compose.yml](deployment/docker-compose.yml)
 - 환경 변수 템플릿: [.env.example](.env.example)
+- 네트워크·Nginx·실시간 통신 인프라 상세: [docs/infrastructure.md](docs/infrastructure.md)
