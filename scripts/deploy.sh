@@ -91,12 +91,15 @@ for i in {1..5}; do
         echo "서비스 URL:"
         echo "  - API: http://localhost:8000"
         echo "  - Docs: http://localhost:8000/docs"
-        echo "  - Grafana: http://localhost:3000 (admin / .env의 GRAFANA_ADMIN_PASSWORD 값)"
-        echo "  - Prometheus: http://localhost:9090"
-        echo "  - Alertmanager: http://localhost:9093"
         if [[ "$SERVICES" != *"nginx"* ]]; then
             echo "  (nginx/certbot 미기동 — TLS는 DOMAIN 설정 후 scripts/init_letsencrypt.sh로 별도 진행)"
         fi
+        echo ""
+        echo "Grafana/Prometheus/Alertmanager는 호스트에 포트를 게시하지 않습니다"
+        echo "(docs/infrastructure.md 참고 — nginx 뒤에 없고 인증도 없는 서비스라 방화벽 대신 아예 숨김)."
+        echo "확인이 필요하면 컨테이너 안에서 직접 조회하세요, 예:"
+        echo "  docker compose --env-file ../.env exec grafana wget -qO- http://localhost:3000/api/health"
+        echo "  docker compose --env-file ../.env exec prometheus wget -qO- http://localhost:9090/-/healthy"
         echo ""
         echo "Ollama 모델 다운로드:"
         echo "  docker exec ollama ollama pull qwen2.5-coder:7b"

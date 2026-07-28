@@ -29,13 +29,13 @@
 ```
                                 인터넷 / LAN
                                      │
-              ┌──────────────────────┼──────────────────────────────────────────┐
-              │ 80 (HTTP)            │ 443 (HTTPS)      8000 9090 9093 3000 8080 9100 11434
-              ▼                      ▼                   │    │    │    │    │    │    │
-      ┌───────────────────────────────────┐              │    │    │    │    │    │    │
-      │              nginx                │              ▼    ▼    ▼    ▼    ▼    ▼    ▼
-      │  - 80: ACME 챌린지만 처리, 그 외  │      (아래 서비스들이 nginx를 거치지 않고
-      │        전부 443으로 301 리다이렉트│       호스트에도 동시에 직접 게시되어 있음 — 2.2절)
+              ┌──────────────────────┼───────────────┐
+              │ 80 (HTTP)            │ 443 (HTTPS)    │ 8000 (의도적 예외 — 아래 참고)
+              ▼                      ▼                ▼
+      ┌───────────────────────────────────┐      coding-agent
+      │              nginx                │      (FastAPI, :8000)
+      │  - 80: ACME 챌린지만 처리, 그 외  │
+      │        전부 443으로 301 리다이렉트│
       │  - 443: TLS 종료(certbot 인증서)  │
       │        + 리버스 프록시           │
       └────────────────┬────────────────-┘
@@ -44,9 +44,9 @@
       ┌───────────────────────────────┐        ┌───────────────────────────┐
       │       coding-agent            │◄──────►│         ollama            │
       │       (FastAPI, :8000)        │  HTTP  │   qwen2.5-coder:7b        │
-      │  /api/v1/*  /ws/chat  /health │        │   (Nvidia GPU 컨테이너)   │
-      │  /metrics                     │        └───────────────────────────┘
-      └────────────────┬───────────────┘
+      │  /api/v1/*  /ws/chat  /health │        │   (Nvidia GPU 컨테이너,   │
+      │  /metrics                     │        │    호스트 포트 게시 없음) │
+      └────────────────┬───────────────┘        └───────────────────────────┘
                         │ :8000/metrics 직접 스크레이핑 (nginx 안 거침)
                         ▼
       ┌───────────────────────────┐   alert   ┌───────────────────────────┐
@@ -58,11 +58,15 @@
 
       node-exporter(:9100) — 호스트 메트릭, cadvisor(:8080) — 컨테이너별 메트릭
       → 둘 다 prometheus가 별도 scrape_config로 수집
+
+      ※ prometheus/alertmanager/grafana/cadvisor/node-exporter/ollama는 호스트에
+        포트를 게시하지 않는다 — coding-agent-network 내부에서만 서로 접근 가능.
 ```
 
 모든 서비스는 하나의 Docker 브리지 네트워크(`coding-agent-network`) 위에 있고, 외부에서 "정식으로"
-공개하도록 설계된 진입점은 nginx(80/443) 하나뿐이다. 그러나 실제 `docker-compose.yml`에는
-다른 서비스들도 호스트 포트로 게시되어 있어(2.2절), 설계와 실제 노출 범위 사이에 차이가 있다.
+공개하도록 설계된 진입점은 nginx(80/443)다. `coding-agent`의 8000만 예외적으로 호스트에
+직접 게시되어 있는데, 이는 실수가 아니라 `scripts/deploy.sh`가 `DOMAIN` 미설정 시(LAN 테스트
+배포) nginx/certbot 자체를 안 띄우기 때문에 남겨둔 의도적 결정이다(2.2절).
 
 ---
 
@@ -87,20 +91,24 @@
 
 ### 2.2 포트 매핑과 실제 노출 범위
 
+> 2026-07-28 업데이트: nginx를 거칠 필요가 없던 6개 서비스(ollama, prometheus,
+> alertmanager, grafana, cadvisor, node-exporter)는 호스트 `ports:` 게시를 제거했다.
+> `coding-agent`의 8000만 아래 이유로 의도적으로 남겨뒀다.
+
 | 서비스 | 컨테이너 포트 | 호스트 게시 | 설계상 접근 경로 | 비고 |
 |---|---|---|---|---|
 | nginx | 80, 443 | `80:80`, `443:443` | 외부 공개 | 유일하게 "공개용"으로 설계된 진입점 |
-| coding-agent | 8000 | `8000:8000` | nginx 경유 | **호스트에도 직접 게시되어 있어 nginx를 우회해 바로 접근 가능.** 이 경우 nginx의 TLS 종료, `/metrics` 내부망 제한(3.2절), gzip 등이 전부 무의미해진다. |
-| ollama | 11434 | `11434:11434` | coding-agent만(내부 DNS로 충분) | 앱 동작에는 호스트 게시가 불필요하다. Ollama API는 자체 인증이 없어 게시 시 외부에서 모델을 직접 나열/호출할 수 있다. |
-| prometheus | 9090 | `9090:9090` | 운영자 전용 | nginx 뒤에 있지 않다. 인증 없음 |
-| alertmanager | 9093 | `9093:9093` | 운영자 전용 | 인증 없음 |
-| grafana | 3000 | `3000:3000` | 운영자 전용 | 자체 로그인(admin 비밀번호, `.env` 필수값)은 있음 |
-| cadvisor | 8080 | `8080:8080` | 운영자 전용 | 인증 없음. `/rootfs`, `/var/run`, `/sys`, 도커 소켓을 read-only로 마운트 |
-| node-exporter | 9100 | `9100:9100` | 운영자 전용 | 인증 없음 |
+| coding-agent | 8000 | `8000:8000` (유지) | nginx 경유 **또는** 직접 | **의도적 예외.** `scripts/deploy.sh`는 `DOMAIN`이 없으면(LAN 테스트 배포) nginx/certbot을 아예 안 띄우므로, 그 경로에서는 8000 직접 접근이 API에 닿는 유일한 수단이다(실제 LAN 서버가 이 방식으로 운영 중). nginx가 실제로 앞에 있는 배포에서는 이 포트가 nginx의 TLS 종료·`/metrics` 내부망 제한(3.2절)을 우회하는 구멍이 되므로, `DOMAIN` 없이도 nginx를 HTTP 전용으로 띄우도록 `deploy.sh`를 고친 뒤 제거하는 게 목표(8장). |
+| ollama | 11434 | 게시 안 함 | coding-agent만(내부 DNS로 충분) | 앱 동작에는 호스트 게시가 불필요했다. Ollama API는 자체 인증이 없어 게시 시 외부에서 모델을 직접 나열/호출할 수 있었다. |
+| prometheus | 9090 | 게시 안 함 | 컨테이너 내부에서만 | nginx 뒤에 있지 않고 인증도 없다. 확인 필요 시 `docker compose exec prometheus wget -qO- http://localhost:9090/-/healthy` |
+| alertmanager | 9093 | 게시 안 함 | 컨테이너 내부에서만 | 인증 없음 |
+| grafana | 3000 | 게시 안 함 | 컨테이너 내부에서만 | 자체 로그인(admin 비밀번호, `.env` 필수값)은 있지만 이중 방어로 게시 자체를 제거 |
+| cadvisor | 8080 | 게시 안 함 | 컨테이너 내부에서만 | 인증 없음. `/rootfs`, `/var/run`, `/sys`, 도커 소켓을 read-only로 마운트하는 서비스라 특히 노출을 피해야 함 |
+| node-exporter | 9100 | 게시 안 함 | 컨테이너 내부에서만 | 인증 없음 |
 
-> **주의:** 현재는 LAN 환경에서만 운영 중이라 실질 위험은 낮지만, README.md에 명시된
-> Phase 3(퍼블릭 도메인 배포) 전에는 8000/9090/9093/3000/8080/9100을 호스트 방화벽에서
-> 막고 nginx(80/443)만 외부에 열어야 위 표의 "설계상 접근 경로"가 실제로 강제된다.
+> 브라우저로 Grafana/Prometheus 대시보드를 봐야 하면, 확인하는 동안만
+> `deployment/docker-compose.yml`에 해당 서비스의 `ports:`를 한시적으로 되살리는 방식을
+> 쓴다(운영 스크립트에는 반영하지 않음 — 상시 노출을 막는 게 목적이므로).
 
 ### 2.3 공유 볼륨(네트워크 스토리지 아님, 참고용)
 
@@ -133,7 +141,7 @@
 | `/api/` | `coding-agent:8000` | `proxy_read/send/connect_timeout 300s`, `Upgrade`/`Connection` 헤더 전달 | REST API(`/api/v1/agent/*`, `/api/v1/vscode/*`, `/api/v1/files/*`, `/api/v1/generate`) **그리고** 이 prefix 아래 있는 WebSocket 2종(`/api/v1/agent/ws/{task_id}`, `/api/v1/vscode/ws/{session_id}`)과 SSE(`/api/v1/agent/task/{id}/execute`)까지 전부 포함 |
 | `/ws/` | `coding-agent:8000` | `proxy_read/send/connect_timeout 7d` | **오직** `/ws/chat`(순수 LLM 채팅)만 매칭 |
 | `/health` | `coding-agent:8000` | `access_log off` | 헬스체크 로그 노이즈 방지 |
-| `/metrics` | `coding-agent:8000` | `geo $internal_network`로 사설 대역(`10/8`, `172.16/12`, `192.168/16`, `127.0.0.1`) 외 `403` | Prometheus는 이 경로를 거치지 않고 `coding-agent:8000/metrics`를 컨테이너 네트워크로 직접 스크레이핑(`prometheus.yml`)하므로, 이 location은 사람이 브라우저로 확인할 때만 쓰인다. 2.2절에서 본 것처럼 8000이 호스트에 직접 게시돼 있으면 이 제한 자체가 우회 가능하다. |
+| `/metrics` | `coding-agent:8000` | `geo $internal_network`로 사설 대역(`10/8`, `172.16/12`, `192.168/16`, `127.0.0.1`) 외 `403` | Prometheus는 이 경로를 거치지 않고 `coding-agent:8000/metrics`를 컨테이너 네트워크로 직접 스크레이핑(`prometheus.yml`)하므로, 이 location은 사람이 브라우저로 확인할 때만 쓰인다. `coding-agent`의 8000이 (2.2절에서 설명한 의도적 예외로) 호스트에 여전히 직접 게시돼 있어 이 제한은 지금도 우회 가능하다 — nginx-only 전환 전까지 남는 한계(8장). |
 | `/` | `coding-agent:8000` | - | 위 조건에 안 걸리는 나머지 전부(루트 서비스 정보 등) |
 
 nginx의 location 매칭은 **최장 프리픽스 우선**이다. 그래서 `/api/v1/agent/ws/xyz`나
@@ -315,8 +323,13 @@ FastAPI의 `HTTPBearer`는 Starlette `Request`(HTTP 전용) 객체에 의존한�
 
 ## 8. 알려진 한계 / 향후 과제
 
-- 8000/9090/9093/3000/8080/9100 포트가 nginx 없이 호스트에 직접 게시되어 있어, nginx가
-  강제하는 접근 제한(TLS, `/metrics` 내부망 제한 등)이 방화벽 설정에 전적으로 의존한다.
+- ~~9090/9093/3000/8080/9100/11434 포트가 nginx 없이 호스트에 직접 게시되어 있던 문제~~ —
+  2026-07-28에 해당 6개 서비스의 호스트 `ports:` 게시를 제거해 해결.
+- `coding-agent`의 8000만 여전히 호스트에 게시되어 있다 — `scripts/deploy.sh`가 `DOMAIN`
+  미설정 시(LAN 테스트 배포) nginx/certbot을 안 띄우기 때문에 남겨둔 의도적 예외다(2.2절).
+  이 상태에서는 nginx의 TLS 종료·`/metrics` 내부망 제한이 8000 직접 접근으로 우회 가능하다.
+  근본적으로 없애려면 `DOMAIN` 없이도 nginx를 HTTP 전용으로 띄우도록 `deploy.sh`/
+  `nginx.conf.template`을 먼저 고쳐야 한다 — Phase 3(퍼블릭 도메인) 전환 시 함께 정리할 것.
 - `WORKERS=1` 고정 — Redis 기반 상태 공유 도입 전까지 단일 프로세스이며 수평 확장 불가.
 - `/api/` 경로 아래 두 WebSocket(vscode, agent)의 300초 idle 타임아웃과 최대 20회 반복
   에이전트 루프 사이에 잠재적 충돌 가능성(4.3절).
