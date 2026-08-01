@@ -197,6 +197,14 @@ crash-loop에 빠지는 걸 실측으로 확인했다. 이후 `coding-agent`가 
 정상적인 `docker compose up` 흐름에서는 이 순서를 보장해주지만, nginx만 따로
 추가 기동할 때는(`scripts/start_nginx_selfsigned.sh` 등) 호출 순서를 직접 챙겨야 한다.
 
+같은 이유로 **이미 정상적으로 떠 있던 `coding-agent`를 재배포(재빌드/재기동)해도**
+문제가 생긴다 — 컨테이너가 재생성되면 새 컨테이너가 다른 내부 IP를 받는데
+(도커 IPAM이 우연히 같은 IP를 재할당하는 경우도 있어 매번 재현되진 않음, 다른
+컨테이너로 그 IP를 미리 점유시켜 강제로 재현·확인함), nginx는 처음 resolve한
+옛 IP를 계속 쓰다가 **502 Bad Gateway**를 낸다. 이 경우도 `docker compose restart
+nginx`로 즉시 복구된다. `scripts/redeploy_app.sh`가 coding-agent 재배포 후 nginx가
+떠 있으면 이 재시작을 자동으로 같이 해준다.
+
 ---
 
 ## 4. 실시간 통신(WebSocket/SSE) 아키텍처

@@ -529,6 +529,7 @@ certbot-webroot     # ACME HTTP-01 챌린지 경로
 | `scripts/rollback.sh` | 이전 태그(또는 직접 지정한 태그)로 pull+재기동. `git reset --hard`/`rm -rf` 같은 파일시스템 조작 없음 |
 | `scripts/init_letsencrypt.sh` | Let's Encrypt 인증서 최초 발급(더미 인증서 부트스트랩 + webroot 방식) |
 | `scripts/start_nginx_selfsigned.sh` | LAN 테스트 배포(실제 도메인 없음)에서 nginx만 자체 서명 인증서로 추가 기동 — `deploy.sh`는 `DOMAIN` 미설정 시 nginx/certbot을 SERVICES에서 빼므로, nginx 자체 동작을 LAN에서 검증하려면 이 스크립트로 별도 기동해야 함. `coding-agent`가 이미 실행 중이어야 함(사전 확인 포함) — nginx는 upstream 호스트명을 기동 시점에 한 번만 정적으로 resolve해서, 먼저 안 떠 있으면 계속 crash-loop에 빠짐 |
+| `scripts/redeploy_app.sh` | 그 서버에서 직접 `git pull` + `coding-agent`만 재빌드/재기동(ollama/모니터링 스택은 안 건드림) — 일상적인 코드 변경 재배포용. nginx가 떠 있으면 자동으로 같이 재시작함(coding-agent 재기동으로 내부 IP가 바뀌면 nginx가 캐시해둔 옛 IP로 502가 나기 때문) |
 
 ---
 
