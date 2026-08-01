@@ -7,7 +7,7 @@ Main orchestrator that connects LLM and tools to execute agent tasks.
 from typing import Any, Dict, List, Optional, AsyncIterator
 import logging
 
-from .llm.base import LLMClient
+from .llm.base import AgentResponse, LLMClient
 from .executor import ToolExecutor
 from .memory.conversation import ConversationMemory
 from .memory.task_state import TaskState, TaskStatus
@@ -104,18 +104,30 @@ class AgentOrchestrator:
                     f"[Task {task_id}] Iteration {iteration}/{self.max_iterations}"
                 )
 
-                # 1. LLM에게 다음 액션 요청
+                # 1. LLM에게 다음 액션 요청 (스트리밍 — 토큰이 오는 대로 llm_token
+                # 이벤트로 흘려보내, 추론이 오래 걸려도 SSE/WebSocket이 침묵하지
+                # 않게 한다. 논스트리밍 백엔드는 LLMClient.stream_next_actions()
+                # 기본 구현이 "done" 이벤트 하나만 내는 것으로 자동 대체된다.)
                 yield {
                     "type": "iteration_start",
                     "iteration": iteration,
                     "message": "Thinking..."
                 }
 
+                agent_response: Optional[AgentResponse] = None
                 try:
-                    agent_response = await active_llm.get_next_actions_async(
+                    async for chunk in active_llm.stream_next_actions(
                         conversation_history=memory.get_history(),
                         workspace_path=workspace_path
-                    )
+                    ):
+                        if chunk["type"] == "token":
+                            yield {
+                                "type": "llm_token",
+                                "iteration": iteration,
+                                "content": chunk["content"]
+                            }
+                        elif chunk["type"] == "done":
+                            agent_response = chunk["response"]
                 except Exception as e:
                     logger.error(f"[Task {task_id}] LLM request failed: {e}")
                     yield {

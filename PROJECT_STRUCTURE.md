@@ -204,8 +204,14 @@ VS Code 확장 및 CLI 클라이언트별 격리된 세션 관리:
 Ollama API 통신:
 
 - 시스템 프롬프트 + 대화 기록 조합
-- LLM 응답에서 JSON 액션 파싱
-- 스트리밍 응답 처리
+- LLM 응답에서 JSON 액션 파싱 (Structured Outputs로 스키마 강제)
+- `stream_next_actions()` — Ollama의 토큰 스트리밍(`ollama.AsyncClient`, `stream=True`)을
+  그대로 이벤트로 흘려보낸다. 논스트리밍 `stream=False` 방식은 한 iteration의 LLM
+  추론이 끝날 때까지 SSE/WebSocket에 아무 이벤트도 안 나가는 침묵 구간을 만들어
+  nginx idle 타임아웃(`docs/infrastructure.md` 4.3절)에 걸리는 원인이었음 — 2026-08-01에
+  토큰 단위 스트리밍으로 교체해 해결. `LLMClient.stream_next_actions()`(기본 구현은
+  논스트리밍 백엔드를 위해 `get_next_actions_async()`를 감싸는 폴백)로 전략 패턴에 맞춰
+  추상화되어 있음
 
 #### `src/agent/memory/` - 메모리 관리
 
@@ -396,7 +402,8 @@ Typer 기반 CLI 명령어 제공:
                                       │
                                       ├─ [반복 1~20회]
                                       │    ├─ ConversationMemory에서 대화 기록 읽기
-                                      │    ├─ OllamaClient::chat() → LLM 요청
+                                      │    ├─ OllamaClient::stream_next_actions() → LLM 요청
+                                      │    │    (토큰이 오는 대로 llm_token 이벤트로 스트리밍)
                                       │    ├─ JSON 액션 파싱
                                       │    │    예: {"action": "read_file", "path": "main.py"}
                                       │    ├─ SecurityValidator::validate()

@@ -219,16 +219,39 @@ FastAPI의 `HTTPBearer`는 Starlette `Request`(HTTP 전용) 객체에 의존한�
 직접 구현해 `accept()` 전에 검사하고, 초과 시 `close(code=1013)`(Try Again Later)로 끊는다.
 이 카운터도 4.4절과 마찬가지로 프로세스 메모리에 있다.
 
-### 4.3 타임아웃 비대칭이 실제로 의미하는 것
+### 4.3 타임아웃 비대칭이 실제로 의미하는 것 (실측 완료, 2026-08-01)
 
 3.2절에서 본 것처럼 `/api/v1/vscode/ws/{session_id}`와 `/api/v1/agent/ws/{task_id}`는
 `/api/` location(300초 idle 타임아웃)에 걸리고, `/ws/chat`만 `/ws/` location(7일)에 걸린다.
-에이전트 오케스트레이터는 최대 20회 반복이고 매 반복마다 LLM 추론(모델·프롬프트 크기에
-따라 수십 초 이상 걸릴 수 있음) + 툴 실행(`run_tests` 등)이 들어간다. 한 반복이 유난히
-오래 걸려 300초 동안 백엔드로부터 아무 바이트도 못 받으면 nginx가 먼저 연결을 끊을 수
-있다 — 이 경우 애플리케이션은 4.4절의 `CancelledError` 경로를 타게 된다. `/ws/chat`만
-7일로 넉넉한 이유는 개별 응답 스트리밍 시간보다는, 사용자가 채팅 turn 사이에 오래
-가만히 있어도 연결 자체는 유지해야 하기 때문으로 보인다.
+에이전트 오케스트레이터는 최대 20회 반복이고 매 반복마다 LLM 추론 + 툴 실행(`run_tests`
+등)이 들어가는데, 로컬에 nginx의 `/api/`·`/ws/` location 설정만 그대로 재현한 테스트
+스택을 띄우고 세 경로를 300초+ 침묵시켜본 결과는 다음과 같았다:
+
+| 경로 | nginx 타임아웃 | 실측 결과 |
+|---|---|---|
+| SSE `/api/v1/agent/task/{id}/execute` | 300s | **300.1초에 정확히 끊김**(`peer closed connection`) |
+| WS `/api/v1/agent/ws/{task_id}` | 300s (같은 `/api/`) | 320초까지 생존 |
+| WS `/ws/chat` | 7d | 320초까지 생존 |
+
+WebSocket 2종이 같은 300초 설정인데도 살아남은 이유는 uvicorn(`websockets` 구현)이
+애플리케이션 로직과 무관하게 자동으로 보내는 WS PING/PONG(기본 ~20초 간격) 때문이다.
+nginx는 WS 업그레이드 이후 그 연결을 바이트 단위로 그냥 릴레이할 뿐이라, 이 PING도
+"업스트림에서 온 데이터"로 카운트되어 `proxy_read_timeout`을 계속 리셋시킨다.
+**반면 SSE는 순수 HTTP 스트리밍이라 이런 프로토콜 레벨 하트비트가 없어서, 침묵이
+300초를 넘기면 예외 없이 nginx가 먼저 끊는다.** 즉 실제 위험은 WebSocket 2종이 아니라
+SSE 엔드포인트 하나에 집중되어 있었다.
+
+**근본 원인과 수정 (2026-08-01):** SSE가 침묵하는 이유는 nginx나 WS 프로토콜의 문제가
+아니라, `src/agent/llm/ollama_client.py`의 Ollama 호출이 `stream=False`로 응답 전체가
+완성될 때까지 기다렸다가 한 번에 반환하는 방식이었기 때문이다 — 이 대기 시간 내내
+오케스트레이터(`orchestrator.py`)가 이벤트를 하나도 `yield`하지 않았다. 이를 고치기 위해
+`LLMClient`에 `stream_next_actions()`를 추가하고(`src/agent/llm/base.py` — 논스트리밍
+백엔드는 `get_next_actions_async()`를 감싸는 기본 구현으로 자동 호환), `OllamaAgentClient`가
+`ollama.AsyncClient.chat(..., stream=True)`로 실제 토큰 스트리밍을 구현하도록 바꿨다.
+오케스트레이터는 이제 각 iteration마다 토큰이 도착하는 대로 `{"type": "llm_token", ...}`
+이벤트를 계속 흘려보내고, 전체 텍스트가 다 모이면 기존과 동일하게 파싱해 액션을 실행한다
+(Structured Outputs `format=` 스키마 강제는 그대로 유지). 그 결과 SSE에도 실제 콘텐츠가
+계속 흐르게 되어, uvicorn PING 같은 프로토콜 레벨 편법 없이도 300초 침묵 자체가 사라졌다.
 
 ### 4.4 연결이 실행 도중 끊기면 벌어지는 일
 
@@ -331,8 +354,11 @@ FastAPI의 `HTTPBearer`는 Starlette `Request`(HTTP 전용) 객체에 의존한�
   근본적으로 없애려면 `DOMAIN` 없이도 nginx를 HTTP 전용으로 띄우도록 `deploy.sh`/
   `nginx.conf.template`을 먼저 고쳐야 한다 — Phase 3(퍼블릭 도메인) 전환 시 함께 정리할 것.
 - `WORKERS=1` 고정 — Redis 기반 상태 공유 도입 전까지 단일 프로세스이며 수평 확장 불가.
-- `/api/` 경로 아래 두 WebSocket(vscode, agent)의 300초 idle 타임아웃과 최대 20회 반복
-  에이전트 루프 사이에 잠재적 충돌 가능성(4.3절).
+- ~~`/api/` 경로 SSE(`/api/v1/agent/task/{id}/execute`)가 LLM 추론 중 300초 이상
+  침묵하면 nginx idle 타임아웃에 끊기던 문제~~ — 2026-08-01 실측으로 확인 후,
+  `OllamaAgentClient`에 토큰 스트리밍(`stream_next_actions`)을 추가해 해결(4.3절).
+  같은 300초 설정이 걸리는 WebSocket 2종(vscode, agent)은 uvicorn의 자동 WS PING
+  덕분에 애초에 실질적 위험이 아니었던 것도 실측으로 확인됨.
 - certbot 인증서 갱신 후 nginx 자동 reload가 구성되어 있지 않음.
 - 퍼블릭 도메인 배포는 아직 진행 전(README.md Phase 3) — 현재는 LAN 환경에서의 실사용
   검증 단계.

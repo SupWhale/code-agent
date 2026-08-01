@@ -49,6 +49,7 @@ FastAPI · Uvicorn · Pydantic v2 · Ollama · Prometheus/Grafana/Alertmanager/c
 1. **WebSocket 라우트가 인증 미들웨어에 의해 깨짐** — 라우터 레벨 `dependencies=[Depends(require_api_key)]`가 내부적으로 HTTP 전용 `HTTPBearer`(Starlette `Request` 필요)에 의존하는데, 같은 라우터에 등록된 WebSocket 엔드포인트에도 그대로 적용되면서 핸드셰이크 자체가 `TypeError`로 죽고 클라이언트에는 HTTP 500만 찍혔습니다. 유닛 테스트는 HTTP 엔드포인트만 돌렸어서 못 잡았고, 실제로 WebSocket 클라이언트를 붙여보고서야 발견 → HTTP 엔드포인트마다 개별 dependency로 바꾸고, WebSocket은 `accept()` 전 수동 인증(`authenticate_websocket()`)으로 분리.
 2. **non-root 전환 후 기존 볼륨 권한 충돌** — 컨테이너를 non-root(uid 1000)로 바꾼 뒤, 예전에 root로 실행되던 컨테이너가 만들어둔 호스트 바인드 마운트(`deployment/workspace/`)를 새 프로세스가 쓰지 못해 기동 직후 크래시 루프에 빠짐 → 배포 스크립트가 실제 쓰기 가능 여부를 사전 점검하고, 안 되면 `sudo chmod` 안내 후 종료하도록 방어.
 3. **배포 스크립트 자체의 버그 3종** — 실행 권한(+x) 누락, `docker compose`가 대상 서비스와 무관하게 파일 전체를 먼저 해석해서 `DOMAIN` 없이는 아무 서비스도 못 띄우던 문제, 자동으로 채워둔 placeholder 도메인(`lan-test.local`)을 "진짜 도메인 설정됨"으로 오인식해 TLS를 켜려던 로직 오류.
+4. **SSE가 LLM 추론이 오래 걸리면 nginx idle 타임아웃(300초)에 끊김** — 실제 nginx 설정(`nginx.conf.template`)을 로컬에 그대로 재현해 300초 이상 침묵시켜본 결과, WebSocket 2종(`/api/v1/vscode/ws/*`, `/api/v1/agent/ws/*`)은 uvicorn의 자동 WS PING(~20초 간격) 덕분에 살아남았지만 SSE(`/api/v1/agent/task/{id}/execute`)는 정확히 300.1초에 끊겼습니다. 원인은 `ollama_client.py`가 `stream=False`로 LLM 응답 전체가 완성될 때까지 아무 이벤트도 안 내던 것 → `ollama.AsyncClient`의 토큰 스트리밍(`stream=True`)으로 바꿔 추론 중에도 계속 이벤트가 나가도록 수정. 상세: [docs/infrastructure.md](docs/infrastructure.md) 4.3절.
 
 ## 로컬 실행
 

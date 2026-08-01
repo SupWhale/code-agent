@@ -6,7 +6,7 @@ Handles communication with Ollama and parses JSON responses.
 
 import json
 import re
-from typing import List, Dict, Optional, Any
+from typing import AsyncIterator, List, Dict, Optional, Any
 from pathlib import Path
 import logging
 
@@ -74,6 +74,9 @@ class OllamaAgentClient(LLMClient):
             )
 
         self.client = ollama.Client(host=host)
+        # stream_next_actions()의 토큰 스트리밍 전용 — sync Client는 stream=True에서도
+        # 블로킹 이터레이터를 반환해 이벤트 루프를 막으므로 별도의 AsyncClient를 둔다.
+        self.async_client = ollama.AsyncClient(host=host)
         self.model = model
         self.temperature = temperature
 
@@ -111,17 +114,7 @@ class OllamaAgentClient(LLMClient):
             ValueError: JSON 파싱 실패
             Exception: Ollama 통신 실패
         """
-        # 시스템 프롬프트에 workspace 정보 추가
-        full_system_prompt = (
-            f"{self.system_prompt}\n\n"
-            f"**Current workspace**: {workspace_path}\n"
-            f"**Important**: Respond ONLY with valid JSON. No markdown, no code blocks, just pure JSON."
-        )
-
-        # 메시지 구성
-        messages = [
-            {"role": "system", "content": full_system_prompt}
-        ] + conversation_history
+        messages = self._build_messages(conversation_history, workspace_path)
 
         logger.info(f"Requesting next actions from LLM (history: {len(conversation_history)} messages)")
 
@@ -182,6 +175,86 @@ class OllamaAgentClient(LLMClient):
             conversation_history,
             workspace_path
         )
+
+    async def stream_next_actions(
+        self,
+        conversation_history: List[Dict[str, str]],
+        workspace_path: str
+    ) -> AsyncIterator[Dict]:
+        """
+        다음 액션 생성 (스트리밍)
+
+        get_next_actions()와 동일한 프롬프트 구성·JSON 스키마 강제(Structured
+        Outputs)를 그대로 쓰되, Ollama가 토큰을 생성하는 대로 "token" 이벤트를
+        계속 흘려보낸다. 한 iteration의 LLM 추론 전체가 완료될 때까지 아무
+        이벤트도 안 나가던 침묵 구간(수 분 걸리면 SSE가 nginx의 idle 타임아웃에
+        걸려 끊기는 원인이 됨)을 없애기 위함. 모아진 전체 텍스트는 기존과
+        동일하게 한 번에 파싱해서 마지막에 "done" 이벤트로 낸다 — 파싱 로직/
+        신뢰성은 그대로 유지된다.
+
+        Yields:
+            {"type": "token", "content": str}
+            {"type": "done", "response": AgentResponse}
+
+        Raises:
+            ValueError: JSON 파싱 실패
+            Exception: Ollama 통신 실패
+        """
+        messages = self._build_messages(conversation_history, workspace_path)
+
+        logger.info(
+            f"Requesting next actions from LLM (streaming, history: {len(conversation_history)} messages)"
+        )
+
+        try:
+            stream = await self.async_client.chat(
+                model=self.model,
+                messages=messages,
+                options={"temperature": self.temperature},
+                format=_AgentResponseSchema.model_json_schema(),
+                stream=True
+            )
+
+            raw_response = ""
+            async for chunk in stream:
+                content = chunk.get("message", {}).get("content", "")
+                if content:
+                    raw_response += content
+                    yield {"type": "token", "content": content}
+
+            logger.debug(f"LLM response ({len(raw_response)} chars):\n{raw_response[:200]}...")
+
+            parsed = self._parse_json_response(raw_response)
+
+            agent_response = AgentResponse(
+                reasoning=parsed.get("reasoning"),
+                actions=parsed.get("actions", []),
+                raw_response=raw_response
+            )
+
+            logger.info(
+                f"Parsed agent response: {len(agent_response.actions)} actions"
+            )
+
+            yield {"type": "done", "response": agent_response}
+
+        except Exception as e:
+            logger.error(f"Failed to get next actions (streaming): {e}")
+            raise
+
+    def _build_messages(
+        self,
+        conversation_history: List[Dict[str, str]],
+        workspace_path: str
+    ) -> List[Dict[str, str]]:
+        """시스템 프롬프트에 workspace 정보를 채워 넣고 대화 히스토리와 합친다
+        (get_next_actions/stream_next_actions 공용)."""
+        full_system_prompt = (
+            f"{self.system_prompt}\n\n"
+            f"**Current workspace**: {workspace_path}\n"
+            f"**Important**: Respond ONLY with valid JSON. No markdown, no code blocks, just pure JSON."
+        )
+        return [{"role": "system", "content": full_system_prompt}] + conversation_history
 
     def _parse_json_response(self, response: str) -> Dict[str, Any]:
         """
