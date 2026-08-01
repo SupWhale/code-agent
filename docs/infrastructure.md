@@ -183,6 +183,20 @@ HTTP/1.0이라 업그레이드를 지원하지 않는다. 그래서 `/api/`, `/w
 슬롯 하나를 계속 점유한다 — 동시 접속자가 늘어나는 시나리오에서는 이 1024가 실질적인
 상한선이 된다.
 
+### 3.7 upstream 호스트명은 nginx 기동 시점에 딱 한 번만 resolve된다 (실측, 2026-08-01)
+
+`upstream coding-agent { server coding-agent:8000; }`처럼 `server` 지시자에 변수 없이
+호스트명을 직접 쓰면, nginx는 그 이름을 **워커 프로세스 기동 시점에 한 번만** DNS로
+resolve하고 캐시한다(요청마다 다시 조회하지 않음). LAN 테스트 환경에서 `coding-agent`가
+아직 안 떠 있는 상태로 nginx를 먼저 기동해보면 `host not found in upstream
+"coding-agent:8000"` emerg 에러로 nginx가 **아예 시작조차 못 하고** 계속
+crash-loop에 빠지는 걸 실측으로 확인했다. 이후 `coding-agent`가 뒤늦게 떠도, nginx
+자체를 재시작(`docker compose restart nginx`)하기 전까지는 저절로 복구되지 않는다
+(Docker의 `restart: unless-stopped` 재시도 타이밍에 우연히 걸리면 복구되지만
+보장되지 않음). `deployment/docker-compose.yml`의 nginx `depends_on: [coding-agent]`가
+정상적인 `docker compose up` 흐름에서는 이 순서를 보장해주지만, nginx만 따로
+추가 기동할 때는(`scripts/start_nginx_selfsigned.sh` 등) 호출 순서를 직접 챙겨야 한다.
+
 ---
 
 ## 4. 실시간 통신(WebSocket/SSE) 아키텍처
@@ -342,6 +356,18 @@ SSE 엔드포인트 하나에 집중되어 있었다.
 자동으로 reload하지 않는다** — 갱신된 인증서를 실제로 반영하려면 `nginx` 컨테이너 재시작이
 별도로 필요할 수 있고, 현재 이 부분은 자동화되어 있지 않다.
 
+### 7.1 공인 도메인 없이 LAN에서 nginx만 검증하기
+
+`init_letsencrypt.sh`의 4단계(실제 인증서 발급)는 공인 도메인 + 80/443 외부 도달성이
+필요해 LAN 전용 배포에서는 쓸 수 없다. `scripts/deploy.sh`도 `DOMAIN`이 비어있거나
+placeholder(`lan-test.local`)면 nginx/certbot 자체를 SERVICES에서 빼고 기동하므로,
+LAN 환경에서는 기본적으로 nginx가 아예 없는 상태다. nginx의 실제 리버스 프록시 동작
+(location 라우팅, 타임아웃, 인증 헤더 전달 등)을 LAN에서 직접 검증하고 싶다면
+`scripts/start_nginx_selfsigned.sh`를 쓴다 — `init_letsencrypt.sh`의 1~2단계(더미
+인증서 생성 + nginx 기동)만 수행하고 3~5단계(실제 인증서 교체)는 건너뛴 채 자체 서명
+인증서로 계속 유지한다. 클라이언트는 인증서 검증을 꺼야 한다(`curl -k`, 브라우저
+경고 무시). `coding-agent`가 먼저 떠 있어야 하는 이유는 3.7절 참고.
+
 ---
 
 ## 8. 알려진 한계 / 향후 과제
@@ -353,6 +379,8 @@ SSE 엔드포인트 하나에 집중되어 있었다.
   이 상태에서는 nginx의 TLS 종료·`/metrics` 내부망 제한이 8000 직접 접근으로 우회 가능하다.
   근본적으로 없애려면 `DOMAIN` 없이도 nginx를 HTTP 전용으로 띄우도록 `deploy.sh`/
   `nginx.conf.template`을 먼저 고쳐야 한다 — Phase 3(퍼블릭 도메인) 전환 시 함께 정리할 것.
+  (`scripts/start_nginx_selfsigned.sh`로 LAN에서 nginx 자체 동작은 검증할 수 있게 됐지만,
+  8000 직접 노출 자체를 없애주지는 않는다 — 7.1절 참고.)
 - `WORKERS=1` 고정 — Redis 기반 상태 공유 도입 전까지 단일 프로세스이며 수평 확장 불가.
 - ~~`/api/` 경로 SSE(`/api/v1/agent/task/{id}/execute`)가 LLM 추론 중 300초 이상
   침묵하면 nginx idle 타임아웃에 끊기던 문제~~ — 2026-08-01 실측으로 확인 후,
