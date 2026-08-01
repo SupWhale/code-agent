@@ -19,7 +19,7 @@ cd "$PROJECT_ROOT"
 # .env.deploy 파일 로드
 if [ ! -f ".env.deploy" ]; then
     echo -e "${RED}오류: .env.deploy 파일을 찾을 수 없습니다.${NC}"
-    echo "scripts/quick_start.sh를 먼저 실행하세요."
+    echo "cp .env.deploy.example .env.deploy 로 복사한 뒤 SERVER_HOST/SERVER_USER/SERVER_PATH를 채우세요."
     exit 1
 fi
 
