@@ -84,7 +84,9 @@ code-agent/
 │           └── sync_tools.py       # 파일 동기화
 │
 ├── prompts/
-│   └── system_prompt.txt           # 에이전트용 LLM 시스템 프롬프트 (11.2KB)
+│   ├── system_prompt.txt           # 에이전트용 LLM 시스템 프롬프트 (영어, 기본값)
+│   ├── system_prompt.ko.txt        # 한국어 판 — SYSTEM_PROMPT_PATH로 전환 가능
+│   └── fallback_system_prompt.txt  # 위 경로에 파일이 없을 때 쓰이는 최소 프롬프트
 │
 ├── deployment/                     # 프로덕션 배포 설정
 │   ├── docker-compose.yml          # 프로덕션 멀티 서비스 구성
@@ -281,12 +283,27 @@ Typer 기반 CLI 명령어 제공:
 
 ### 4.3 시스템 프롬프트 (`prompts/system_prompt.txt`)
 
-에이전트 LLM에게 전달되는 11.2KB 크기의 상세 지시문:
+에이전트 LLM에게 전달되는 상세 지시문:
 
 - 사용 가능한 툴 목록 및 파라미터 명세
 - JSON 응답 형식 규칙
+- `run_tests`의 `outcome`별 대응 방침
 - 코드 수정 시 주의사항
 - 반복 실행 전략 가이드
+
+**언어**: 기본값은 영어(`system_prompt.txt`)다. 2026-08-13 측정에서 영어판이
+한국어판보다 안정적이었다 — 특히 워크스페이스에 테스트가 없을 때 한국어판은 8회 중
+3회가 헛돌았지만 영어판은 8/8 정상이었다(자세한 수치는
+[live-agent-eval-log.md](docs/live-agent-eval-log.md) 2026-08-13 항목).
+**사용자 요청이 한국어여도 그대로 이해한다** — 별도의 언어 지시 없이 검증했다.
+오히려 "출력은 한국어로 쓰라"는 지시를 넣으면 존재하지 않는 툴을 만들어내는 등
+불안정해져서 넣지 않았다.
+
+한국어판은 `system_prompt.ko.txt`로 남아 있으며 환경 변수로 전환할 수 있다:
+
+```
+SYSTEM_PROMPT_PATH=/app/prompts/system_prompt.ko.txt
+```
 
 ---
 
