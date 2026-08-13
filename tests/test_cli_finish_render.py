@@ -112,3 +112,47 @@ async def test_render_failure_does_not_abort_stream(monkeypatch):
     await _run_ask("session-1", "요청")  # typer.Exit이 나면 안 된다
 
     assert len(consumed) == 2
+
+
+def _completed_event(**event_fields):
+    return {"type": "agent_event", "event": {"type": "task_completed", **event_fields}}
+
+
+def test_self_reported_failure_is_not_rendered_as_success(capsys):
+    """finish(success=false)를 초록 '작업 완료'로 찍으면 실패가 성공으로 읽힌다.
+
+    2026-08-13 실측: 7B 에이전트가 아무 파일도 만들지 못하고 success=false로
+    보고했는데도 CLI는 '✓ 작업 완료'만 출력했다."""
+    _render_event(_completed_event(success=False, message="could not complete"))
+
+    out = capsys.readouterr().out
+    assert "작업 완료" not in out
+    assert "미완료" in out
+
+
+def test_unbacked_change_claims_are_surfaced(capsys):
+    """서버가 이미 잡아낸 '근거 없는 변경 주장'이 화면에도 보여야 한다."""
+    _render_event(_completed_event(
+        success=True,
+        message="done",
+        verification={
+            "suspicious": True,
+            "action_failure_count": 1,
+            "unbacked_change_claims": ["src/example_module.py"],
+        },
+    ))
+
+    out = capsys.readouterr().out
+    assert "src/example_module.py" in out
+    assert "근거" in out
+
+
+def test_clean_success_still_renders_as_completed(capsys):
+    _render_event(_completed_event(
+        success=True,
+        message="done",
+        verification={"suspicious": False, "unverified": False, "unbacked_change_claims": []},
+    ))
+
+    out = capsys.readouterr().out
+    assert "작업 완료" in out

@@ -771,14 +771,42 @@ def _render_event(msg: dict):
             else:
                 console.print(f"[green]  ✓ {tool}[/]: {str(result)[:200]}")
 
-        elif etype == "action_error":
-            console.print(f"[red]  ✗ {event.get('tool')}[/]: {event.get('error')}")
+        # action_failed는 서버가 실제로 보내는 이름이고, action_error는 예전 이름이다.
+        # 둘 다 받아야 재시도 가능한 실패가 화면에서 사라지지 않는다.
+        elif etype in ("action_error", "action_failed"):
+            retry_hint = " [dim](재시도)[/]" if event.get("recoverable") else ""
+            console.print(
+                f"[red]  ✗ {event.get('tool')}[/]{retry_hint}: {event.get('error')}"
+            )
+
+        elif etype == "security_violation":
+            console.print(f"[red bold]  ⛔ 보안 차단 — {event.get('tool')}[/]: {event.get('error')}")
 
         elif etype == "ask_user":
             console.print(f"\n[magenta]? {event.get('question')}[/]")
 
         elif etype == "task_completed":
-            console.print("\n[green bold]✓ 작업 완료[/]")
+            # task_completed는 "에이전트가 finish를 불렀다"는 뜻일 뿐 성공이 아니다.
+            # 초록 "✓ 작업 완료"를 무조건 찍으면 자체 실패 보고(success=false)와
+            # 근거 없는 성공 주장이 전부 성공처럼 보인다 — 서버가 이미 계산해 둔
+            # verification 신호를 그대로 보여준다.
+            v = event.get("verification") or {}
+            unbacked = v.get("unbacked_change_claims") or []
+
+            if not event.get("success", True):
+                console.print("\n[red bold]✗ 작업 미완료[/] [dim]— 에이전트가 스스로 실패로 보고했습니다[/]")
+            elif v.get("suspicious") or unbacked:
+                console.print("\n[yellow bold]⚠ 성공이라고 보고했지만 근거가 맞지 않습니다[/]")
+                if unbacked:
+                    console.print(f"[yellow]  · 변경했다고 주장했으나 실제 실행 기록이 없는 파일: {', '.join(unbacked)}[/]")
+                if v.get("action_failure_count"):
+                    console.print(f"[yellow]  · 중간에 실패한 액션 {v['action_failure_count']}건[/]")
+                if v.get("run_tests_last_success") is False:
+                    console.print("[yellow]  · 마지막 테스트 실행이 실패했습니다[/]")
+            elif v.get("unverified"):
+                console.print("\n[yellow bold]✓ 작업 완료 — 다만 미검증[/] [dim](테스트가 없어 확인할 근거가 없습니다)[/]")
+            else:
+                console.print("\n[green bold]✓ 작업 완료[/]")
 
         elif etype == "task_failed":
             console.print(f"\n[red bold]✗ 작업 실패[/]: {event.get('error')}")
