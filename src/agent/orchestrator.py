@@ -6,6 +6,7 @@ Main orchestrator that connects LLM and tools to execute agent tasks.
 
 from typing import Any, Dict, List, Optional, AsyncIterator
 import logging
+import posixpath
 
 from .llm.base import AgentResponse, LLMClient
 from .executor import ToolExecutor
@@ -14,6 +15,23 @@ from .memory.task_state import TaskState, TaskStatus
 from .security.validator import SecurityValidator, SecurityError
 
 logger = logging.getLogger(__name__)
+
+# 워크스페이스 파일을 실제로 바꾸는 도구들. finish의 changed_files 자체 보고를
+# 대조할 증거를 모으는 데 쓴다.
+_FILE_MUTATING_TOOLS = ("create_file", "edit_file", "delete_file")
+
+
+def _normalize_path(path: str) -> str:
+    """주장한 경로와 실제 경로를 대조하기 위한 최소 정규화.
+
+    프롬프트는 상대 경로를 요구하지만 모델이 "./src/a.py"처럼 보내는 일이 있어
+    그 정도 차이는 흡수한다. 그 이상(절대 경로 등)은 맞추려 들지 않고 불일치로
+    남긴다 — 어차피 차단이 아니라 기록용 신호다.
+    """
+    if not isinstance(path, str):
+        return ""
+    normalized = posixpath.normpath(path.strip().replace("\\", "/"))
+    return normalized.lstrip("/")
 
 
 class AgentOrchestrator:
@@ -101,6 +119,9 @@ class AgentOrchestrator:
         # 없어서 검증을 못 한 것"이 구분되지 않아 따로 남긴다.
         run_tests_last_outcome: Optional[str] = None
         action_failure_count = 0
+        # 실제로 성공한 파일 변경 도구가 건드린 경로. finish가 주장하는
+        # changed_files를 대조할 유일한 증거다.
+        actual_changed_files: List[str] = []
 
         try:
             for iteration in range(1, self.max_iterations + 1):
@@ -209,6 +230,11 @@ class AgentOrchestrator:
                         # 성공 시 실패 카운터 리셋
                         consecutive_failures = 0
 
+                        if tool_name in _FILE_MUTATING_TOOLS:
+                            touched = params.get("path")
+                            if isinstance(touched, str) and touched not in actual_changed_files:
+                                actual_changed_files.append(touched)
+
                         if tool_name == "run_tests" and isinstance(result, dict):
                             run_tests_last_outcome = result.get("outcome")
                             if run_tests_last_outcome == "no_tests":
@@ -230,6 +256,18 @@ class AgentOrchestrator:
                         if tool_name == "finish":
                             finish_result = result if isinstance(result, dict) else {}
                             claimed_success = finish_result.get("success", True)
+                            claimed_changed_files = finish_result.get(
+                                "changed_files"
+                            ) or []
+
+                            # 변경했다고 주장했지만 실제 파일 도구 실행 기록이 없는
+                            # 경로. 7B 모델이 아무 파일도 안 건드리고 "고쳤다"고
+                            # 보고하던 실패 양상을 잡기 위한 증거다.
+                            evidence = {_normalize_path(p) for p in actual_changed_files}
+                            unbacked_claims = [
+                                path for path in claimed_changed_files
+                                if _normalize_path(path) not in evidence
+                            ]
 
                             # 소프트 검증: 모델의 자체 성공 보고를 실제 증거와 대조만
                             # 하고, 판단 자체를 뒤집지는 않는다 — run_tests 인프라가
@@ -252,6 +290,11 @@ class AgentOrchestrator:
                                     claimed_success
                                     and run_tests_last_success is None
                                 ),
+                                "claimed_changed_files": list(claimed_changed_files),
+                                "actual_changed_files": list(actual_changed_files),
+                                # suspicious에 접지 않는다 — 경로 표기 차이만으로도
+                                # 어긋날 수 있어서, 기존 신호를 흐리지 않게 별도로 둔다.
+                                "unbacked_change_claims": unbacked_claims,
                             }
 
                             state.complete(finish_result, verification=verification)
@@ -263,6 +306,10 @@ class AgentOrchestrator:
                                     "message",
                                     "Task completed"
                                 ),
+                                "changed_files": list(claimed_changed_files),
+                                # finish가 보고한 변경 통계. 아래 "summary"는 태스크
+                                # 상태 전체라 이름이 겹쳐서 따로 뗀다.
+                                "change_summary": finish_result.get("summary") or {},
                                 "verification": verification,
                                 "summary": state.to_dict()
                             }

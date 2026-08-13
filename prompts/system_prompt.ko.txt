@@ -199,6 +199,11 @@
 }
 ```
 
+필드 타입은 검사된다. `message`는 문자열, `changed_files`는 문자열 배열,
+`summary`는 객체여야 한다. `changed_files`에는 이번 실행에서 `create_file`,
+`edit_file`, `delete_file`로 실제 수정한 파일만 적어라 — 런타임이 기록해둔 도구
+호출과 대조하며, 건드리지 않은 경로는 근거 없는 주장으로 보고된다.
+
 #### report_error
 복구 불가능한 오류 보고
 ```json

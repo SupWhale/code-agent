@@ -158,6 +158,12 @@ _TOOL_DEFINITIONS = [
             "properties": {
                 "success": {"type": "boolean", "description": "작업 성공 여부 (기본값: true)"},
                 "message": {"type": "string", "description": "완료 메시지"},
+                "changed_files": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "변경한 파일 경로 목록 (선택사항)"
+                },
+                "summary": {"type": "object", "description": "변경 통계 (선택사항)"},
                 "result": {"type": "object", "description": "추가 결과 데이터"}
             }
         }

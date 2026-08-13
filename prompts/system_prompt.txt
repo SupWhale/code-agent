@@ -206,6 +206,12 @@ Signal task completion
 }
 ```
 
+Field types are checked: `message` must be a string, `changed_files` an array of
+strings, `summary` an object. `changed_files` must list only files you actually
+modified with `create_file`, `edit_file`, or `delete_file` in this run — the
+runtime compares your list against the tool calls it recorded, and a path you
+never touched is reported as an unbacked claim.
+
 #### report_error
 Report an unrecoverable error
 ```json

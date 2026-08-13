@@ -132,6 +132,82 @@ async def test_verification_not_suspicious_when_clean(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_claimed_changed_files_are_checked_against_real_tool_calls(tmp_path):
+    """실제로 만든 파일은 근거로 남고, 안 건드린 파일 주장은 걸러진다."""
+    llm = _ScriptedLLMClient([
+        AgentResponse(
+            reasoning="create one file",
+            actions=[{
+                "tool": "create_file",
+                "params": {"path": "src/calculator.py", "content": "x = 1\n"},
+            }],
+            raw_response="...",
+        ),
+        AgentResponse(
+            reasoning="claim two files, only one was real",
+            actions=[{
+                "tool": "finish",
+                "params": {
+                    "success": True,
+                    "message": "done",
+                    # "./" 표기 차이는 흡수되고, 손대지 않은 파일만 남아야 한다
+                    "changed_files": ["./src/calculator.py", "src/untouched.py"],
+                    "summary": {"total_changes": 1},
+                },
+            }],
+            raw_response="...",
+        ),
+    ])
+    orchestrator = _make_orchestrator(tmp_path, llm)
+
+    events = await _run(orchestrator, tmp_path)
+
+    completed = [e for e in events if e["type"] == "task_completed"][0]
+    verification = completed["verification"]
+    assert verification["actual_changed_files"] == ["src/calculator.py"]
+    assert verification["unbacked_change_claims"] == ["src/untouched.py"]
+    # 경로 대조는 기록용 신호일 뿐, 기존 suspicious 판정을 흐리지 않는다
+    assert verification["suspicious"] is False
+    # finish가 보고한 값은 태스크 상태 전체(summary)와 이름이 겹치지 않게 실린다
+    assert completed["change_summary"] == {"total_changes": 1}
+    assert completed["changed_files"] == ["./src/calculator.py", "src/untouched.py"]
+
+
+@pytest.mark.asyncio
+async def test_no_unbacked_claims_when_report_matches_reality(tmp_path):
+    """주장과 실제가 일치하면 걸리는 게 없어야 한다(오탐 방지)."""
+    llm = _ScriptedLLMClient([
+        AgentResponse(
+            reasoning="create one file",
+            actions=[{
+                "tool": "create_file",
+                "params": {"path": "src/calculator.py", "content": "x = 1\n"},
+            }],
+            raw_response="...",
+        ),
+        AgentResponse(
+            reasoning="report exactly what happened",
+            actions=[{
+                "tool": "finish",
+                "params": {
+                    "success": True,
+                    "message": "done",
+                    "changed_files": ["src/calculator.py"],
+                },
+            }],
+            raw_response="...",
+        ),
+    ])
+    orchestrator = _make_orchestrator(tmp_path, llm)
+
+    events = await _run(orchestrator, tmp_path)
+
+    verification = [e for e in events if e["type"] == "task_completed"][0]["verification"]
+    assert verification["unbacked_change_claims"] == []
+    assert verification["actual_changed_files"] == ["src/calculator.py"]
+
+
+@pytest.mark.asyncio
 async def test_parse_failure_is_fed_back_into_history(tmp_path):
     """LLM 요청/파싱 실패가 다음 호출의 conversation_history에 안내 메시지로 남는지."""
     llm = _ScriptedLLMClient([
