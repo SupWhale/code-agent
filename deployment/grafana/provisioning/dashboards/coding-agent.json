@@ -263,8 +263,9 @@
           "refId": "A"
         }
       ],
-      "title": "동시 접속 사용자 수",
-      "type": "stat"
+      "title": "동시 접속 클라이언트 수",
+      "type": "stat",
+      "description": "연결을 하나 이상 유지 중인 서로 다른 client_id의 수. client_id는 클라이언트가 쿼리 파라미터로 스스로 보내는 값이라 인증 신원과 무관하며, 생략하면 기본값 \"default\"로 전부 합쳐진다 — 사용자 수로 읽지 말 것."
     },
     {
       "datasource": {

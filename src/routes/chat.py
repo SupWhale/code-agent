@@ -22,14 +22,22 @@ from ..rate_limit import check_ws_rate_limit
 
 logger = logging.getLogger(__name__)
 
-# 소켓 개수. 한 사용자가 창을 두 개 열면 2가 된다 — "접속자 수"가 아니다.
+# 소켓 개수. 한 클라이언트가 창을 두 개 열면 2가 된다 — 접속 주체의 수가 아니다.
 active_websockets = Gauge('active_websockets', 'Number of active WebSocket connections')
 
-# 지금 연결을 하나 이상 들고 있는 서로 다른 client_id의 수 = 동시 접속자 수.
-# active_websockets와 나뉘어 있는 이유: 한 클라이언트가 여러 소켓을 열 수 있어서
-# 소켓 수만으로는 실제 사용자 수를 알 수 없다. 대화 기록(conversation_history)은
-# 연결이 끊겨도 남으므로 그 크기와도 다르다 — 이건 어디까지나 "지금 붙어 있는" 수다.
-active_chat_clients = Gauge('active_chat_clients', 'Number of distinct clients with at least one open chat connection')
+# 지금 연결을 하나 이상 들고 있는 서로 다른 client_id의 수.
+# active_websockets와 나뉘어 있는 이유: 한 클라이언트가 여러 소켓을 열 수 있어
+# 소켓 수만으로는 접속 주체가 몇인지 알 수 없다. 대화 기록(conversation_history)은
+# 연결이 끊겨도 남으므로 그 크기와도 다르다 — 이건 "지금 붙어 있는" 수다.
+#
+# 주의: 이걸 "사용자 수"로 읽으면 안 된다. client_id는 클라이언트가 쿼리 파라미터로
+# 스스로 declare하는 값이고 인증 신원(AuthenticatedKey)과 무관하다. 특히 기본값이
+# "default"라, client_id를 안 보내는 클라이언트는 몇이 붙든 전부 1로 합쳐진다(실측).
+active_chat_clients = Gauge(
+    'active_chat_clients',
+    'Number of distinct client_id values with at least one open chat connection '
+    '(client_id is self-declared by the client, not an authenticated identity)'
+)
 
 
 class ConnectionManager:
@@ -39,7 +47,7 @@ class ConnectionManager:
         self.active_connections: List[WebSocket] = []
         self.conversation_history: Dict[str, List[Dict]] = {}
         # client_id -> 그 클라이언트가 지금 열어둔 소켓들. 마지막 소켓이 닫히면
-        # 항목 자체를 지워서, 이 dict의 크기가 곧 동시 접속자 수가 되게 한다.
+        # 항목 자체를 지워서, 이 dict의 크기가 곧 활성 client_id 수가 되게 한다.
         self.client_connections: Dict[str, Set[WebSocket]] = {}
 
     async def connect(self, websocket: WebSocket, client_id: str):
@@ -56,7 +64,7 @@ class ConnectionManager:
 
         logger.info(
             f"WebSocket 연결: {client_id}, 총 연결: {len(self.active_connections)}, "
-            f"접속자: {len(self.client_connections)}"
+            f"활성 client_id: {len(self.client_connections)}"
         )
 
     def disconnect(self, websocket: WebSocket, client_id: str):
@@ -69,7 +77,7 @@ class ConnectionManager:
         sockets = self.client_connections.get(client_id)
         if sockets is not None:
             sockets.discard(websocket)
-            # 이 클라이언트의 마지막 연결이면 접속자 목록에서 뺀다
+            # 이 클라이언트의 마지막 연결이면 활성 목록에서 뺀다
             # (대화 기록은 재접속 시 이어가야 하므로 여기서 지우지 않는다)
             if not sockets:
                 del self.client_connections[client_id]
@@ -77,7 +85,7 @@ class ConnectionManager:
 
         logger.info(
             f"WebSocket 연결 종료: {client_id}, 총 연결: {len(self.active_connections)}, "
-            f"접속자: {len(self.client_connections)}"
+            f"활성 client_id: {len(self.client_connections)}"
         )
 
     async def send_message(self, message: dict, websocket: WebSocket):

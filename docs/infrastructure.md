@@ -331,6 +331,97 @@ SSE 엔드포인트 하나에 집중되어 있었다.
 로그는 JSON 한 줄 포맷(`request_id` 필드 포함)이라 Loki 등 로그 수집기가 필드 단위로
 검색·상관관계 분석을 할 수 있다.
 
+### 5.1 데이터소스 UID가 어긋나면 전 패널이 조용히 빈다 (실측, 2026-08-13)
+
+`coding-agent.json`의 패널들은 데이터소스를 `{"type": "prometheus", "uid": "prometheus"}`로
+참조하는데, `provisioning/datasources/prometheus.yml`에 `uid`가 없으면 Grafana가 임의의
+UID(실측값 `PBFA97CFB590B2093`)를 부여한다. 그 결과 **대시보드의 모든 패널이 "No data"로
+뜬다.**
+
+진단이 까다로운 이유는 아래가 전부 정상으로 보이기 때문이다:
+
+- Prometheus 타깃 4개 전부 `up`
+- `/metrics`에 값이 정상적으로 쌓임
+- Prometheus에 직접 질의(`:9090/api/v1/query`)하면 데이터가 나옴
+- Grafana 자체도 `/api/health`가 `ok`
+
+구분 포인트는 **패널 제목 옆의 경고 아이콘**이다. 데이터가 없는 게 아니라 쿼리가
+에러를 낸 것이므로, 진짜 "데이터 없음"과는 표시가 다르다. 확인은 Grafana의
+데이터소스 프록시로 우회 질의해보면 가장 빠르다:
+
+```bash
+curl -s -u "admin:$PW" --get \
+  "http://localhost:3000/api/datasources/proxy/uid/prometheus/api/v1/query" \
+  --data-urlencode 'query=sum(api_requests_total)'
+# 데이터소스가 없으면 여기서 바로 실패한다
+curl -s -u "admin:$PW" http://localhost:3000/api/datasources   # 실제 uid 확인
+```
+
+수정은 프로비저닝에 `uid: prometheus`를 명시하는 것이다. 단, **그것만 하면 기존 배포는
+기동 자체에 실패한다** — `grafana-data` 볼륨에 옛 UID의 데이터소스가 남아 있으면
+Grafana가 `Datasource provisioning error: data source not found`를 내며 크래시 루프에
+빠진다(실측). 같은 이름의 데이터소스를 먼저 지우도록 `deleteDatasources`를 함께 둬야
+새 배포·기존 배포 양쪽에서 자가 복구된다.
+
+### 5.2 대시보드 패널과 실제 계측 지점은 따로 논다 (실측, 2026-08-13)
+
+메트릭이 **선언만 되어 있고 어디서도 `observe()`/`inc()`되지 않아도** 대시보드 패널은
+아무 경고 없이 만들어진다. `api_response_time_seconds`가 그런 경우였고, 해당 패널은 어떤
+부하를 넣어도 영구히 비어 있었다 — 2026-08-13에 메트릭 선언과 패널을 함께 제거했다.
+
+남은 앱 메트릭이 실제로 증가하는 경로는 아래로 한정된다:
+
+| 메트릭 | 증가하는 경로 | 증가하지 **않는** 경로 |
+|---|---|---|
+| `api_requests_total`, `model_inference_time_seconds` | `POST /api/v1/generate` | 에이전트 태스크 실행 전체 |
+| `file_operations_total` | Files API(`/api/v1/files/*`) | 에이전트의 `file_tools` 툴 실행 |
+| `active_websockets`, `active_chat_clients` | `/ws/chat` | `/api/v1/vscode/ws/*`, `/api/v1/agent/ws/*` |
+
+즉 **에이전트 태스크(`agent ask`)를 아무리 돌려도 앱 패널은 하나도 움직이지 않는다.**
+에이전트 실행 경로에 아직 계측이 없기 때문이며, 대시보드만 보고 "사용량 없음"으로
+오해하기 쉽다. 8장(알려진 한계)에 후속 과제로 정리해 둔다.
+
+### 5.3 소켓 수 · 활성 client_id 수 · 대화 기록은 전부 다른 값이다 (실측, 2026-08-13)
+
+`ConnectionManager`(`src/routes/chat.py`)는 서로 다른 세 가지를 들고 있다.
+
+| | 세는 단위 | 수명 |
+|---|---|---|
+| `active_websockets` | 소켓 1개 = 1 | 연결이 끊기면 즉시 감소 |
+| `active_chat_clients` | 연결을 1개 이상 가진 `client_id` = 1 | 그 클라이언트의 마지막 소켓이 닫힐 때 감소 |
+| `conversation_history` | `client_id`별 대화 기록 | **연결과 무관하게 계속 유지** |
+
+한 클라이언트가 창을 3개 열면 소켓은 3, 활성 `client_id`는 1이다. 소켓 수만으로는 접속
+주체가 몇인지 알 수 없어 2026-08-13에 `active_chat_clients`를 추가했다. 실측 동작:
+
+```
+alice 창 3개          -> 소켓 3 / client_id 1
++ bob 창 1개          -> 소켓 4 / client_id 2
+alice 창 2개 닫음      -> 소켓 2 / client_id 2   (alice가 아직 1개 남음)
+alice 마지막 창 닫음    -> 소켓 1 / client_id 1
+전부 닫음             -> 소켓 0 / client_id 0   (누수 없음)
+```
+
+**`active_chat_clients`를 "사용자 수"로 읽으면 안 된다.** `client_id`는
+`/ws/chat?client_id=...` 쿼리 파라미터로 **클라이언트가 스스로 declare하는 값**이고,
+`authenticate_websocket()`이 검증한 신원(`AuthenticatedKey`)과는 아무 관계가 없다.
+같은 API 키로 서로 다른 `client_id`를 얼마든지 만들 수 있다. 특히 기본값이 `"default"`라
+**`client_id`를 안 보내는 클라이언트는 몇이 붙든 전부 1로 합쳐진다** — 실측으로
+`client_id` 없이 4개를 연결했을 때 소켓 4 / `client_id` 1이 나왔다. 어디까지나 사용자
+수의 대리 지표이며, 클라이언트가 고유한 값을 보내줄 때만 의미가 있다. 검증된 신원 기준으로
+집계하려면 `identity.key`를 집계 키로 쓰도록 바꿔야 한다(8장 참고).
+
+두 게이지 모두 Gauge라 누적이 아니다. 다만 `disconnect()`가 호출되지 않는 예외 경로가
+하나라도 생기면 값이 단조 증가해 사실상 누적처럼 망가지므로, `disconnect()`는 중복
+호출에 대해 멱등하게 구현돼 있다.
+
+**대화 기록은 연결보다 오래 산다.** 연결을 전부 끊었다가 같은 `client_id`로 재접속하면
+이전 대화를 그대로 이어받는 것을 실측으로 확인했다(의도된 동작). 반대급부로
+`conversation_history`는 `disconnect()`에서 지워지지 않아 **새로운 `client_id`가 등장할
+때마다 항목이 쌓이고 회수되지 않는다** — 항목당 최대 20개 메시지로 제한돼 폭발적이진
+않지만 단조 증가하는 인메모리 누수다. 에이전트 세션 쪽(`SessionManager`)에 있는
+`periodic_session_cleanup` 같은 정리 장치가 여기에는 없다(8장 참고).
+
 ---
 
 ## 6. 컨테이너 실행/보안 경계
@@ -396,6 +487,18 @@ LAN 환경에서는 기본적으로 nginx가 아예 없는 상태다. nginx의 �
   같은 300초 설정이 걸리는 WebSocket 2종(vscode, agent)은 uvicorn의 자동 WS PING
   덕분에 애초에 실질적 위험이 아니었던 것도 실측으로 확인됨.
 - certbot 인증서 갱신 후 nginx 자동 reload가 구성되어 있지 않음.
+- **에이전트 실행 경로에 메트릭 계측이 없다** — `agent ask`로 태스크를 돌려도 대시보드의
+  앱 패널은 하나도 움직이지 않는다(5.2절). 태스크 수/반복 횟수/툴 실행 결과/LLM 추론
+  시간을 오케스트레이터와 `ToolExecutor`에 계측해야 실제 사용량이 관측 가능해진다.
+  지금은 `/api/v1/generate`와 Files API만 계측돼 있어 대시보드가 실사용을 대표하지 못한다.
+- **`active_chat_clients`가 검증된 신원 기준이 아니다** — 클라이언트가 스스로 보내는
+  `client_id` 쿼리 파라미터로 집계하므로, 값을 생략하면 전부 `"default"` 하나로 합쳐지고
+  임의로 조작할 수도 있다(5.3절). 인증된 신원 기준으로 바꾸려면 `identity.key`를 집계
+  키로 쓰면 되지만, 키를 여러 사람이 공유하는 경우는 여전히 구분되지 않는다.
+- **`/ws/chat`의 `conversation_history`가 회수되지 않는다** — `disconnect()`가 대화
+  기록을 지우지 않아(재접속 시 이어가기 위한 의도된 동작) 새 `client_id`가 등장할 때마다
+  항목이 쌓인다. 항목당 20개 메시지 상한이 있어 폭발적이진 않지만 단조 증가하는 인메모리
+  누수이며, `SessionManager`의 `periodic_session_cleanup`에 해당하는 정리 장치가 없다.
 - 퍼블릭 도메인 배포는 아직 진행 전(README.md Phase 3) — 현재는 LAN 환경에서의 실사용
   검증 단계.
 
