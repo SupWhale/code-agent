@@ -495,6 +495,16 @@ LAN 환경에서는 기본적으로 nginx가 아예 없는 상태다. nginx의 �
   `client_id` 쿼리 파라미터로 집계하므로, 값을 생략하면 전부 `"default"` 하나로 합쳐지고
   임의로 조작할 수도 있다(5.3절). 인증된 신원 기준으로 바꾸려면 `identity.key`를 집계
   키로 쓰면 되지만, 키를 여러 사람이 공유하는 경우는 여전히 구분되지 않는다.
+- **에이전트가 수정 가능한 경로가 하드코딩되어 있다** — `SecurityValidator.ALLOWED_PATHS`가
+  `["src", "tests", "prompts", "scripts"]`로 고정이고 `strict_mode`도 `src/main.py`에
+  `True`로 박혀 있어 환경 변수로 조정할 수 없다. 그 결과 **사용자가 자기 프로젝트를
+  워크스페이스에 올려도 파일이 루트나 `app/`·`lib/` 같은 다른 디렉토리에 있으면
+  에이전트가 손대지 못한다**(`Path not in allowed directories`). 세션 워크스페이스는
+  이미 `/workspace/.sessions/{id}`로 격리돼 있어 이 화이트리스트는 격리 안에서 한 겹 더
+  조이는 이중 방어인데, 임의 프로젝트를 다루는 용도에서는 마찰이 더 크다.
+  `AGENT_ALLOWED_PATHS`(허용 목록 확장)와 `AGENT_STRICT_PATHS`(화이트리스트 해제)를
+  설정으로 빼는 것이 다음 과제다. 해제하더라도 워크스페이스 경계 검사와 `BLOCKED_PATHS`
+  (`.env`/`.git`/`*.key`/`secrets` 등)는 그대로 남는다.
 - **`/ws/chat`의 `conversation_history`가 회수되지 않는다** — `disconnect()`가 대화
   기록을 지우지 않아(재접속 시 이어가기 위한 의도된 동작) 새 `client_id`가 등장할 때마다
   항목이 쌓인다. 항목당 20개 메시지 상한이 있어 폭발적이진 않지만 단조 증가하는 인메모리
