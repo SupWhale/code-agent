@@ -58,6 +58,12 @@ deployment/backup/
 *.log
 logs/
 
+# 맥북 단독 데모용 스캐폴딩 (커밋하지 않음 — 로컬 시연 전용)
+deployment/docker-compose.mac.yml
+scripts/demo_mac.sh
+scripts/demo_mac_seed.sh
+docs/macbook-demo.md
+
 # Docker
 .dockerignore
 
