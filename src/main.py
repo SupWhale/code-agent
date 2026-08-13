@@ -14,7 +14,7 @@ import ollama
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
-from prometheus_client import Histogram, generate_latest, CONTENT_TYPE_LATEST
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 from slowapi.errors import RateLimitExceeded
 from slowapi import _rate_limit_exceeded_handler
 
@@ -58,9 +58,6 @@ SYSTEM_PROMPT_PATH = str(
     settings.system_prompt_path
     or (Path(__file__).resolve().parent.parent / "prompts" / "system_prompt.txt")
 )
-
-# Prometheus metrics
-api_response_time = Histogram('api_response_time_seconds', 'API response time', ['method', 'endpoint'])
 
 # FastAPI app
 app = FastAPI(
