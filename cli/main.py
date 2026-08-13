@@ -19,7 +19,7 @@ code-agent CLI
 import asyncio
 import sys
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 import typer
 from rich.console import Console
@@ -687,10 +687,54 @@ async def _run_ask(session_id: str, user_request: str, model: Optional[str] = No
     console.print(Panel(f"[bold]{user_request}[/]", title=title, border_style="cyan"))
     try:
         async for msg in client.run_agent(session_id, user_request, model=model):
-            _render_event(msg)
+            try:
+                _render_event(msg)
+            except Exception as e:
+                # 표시 실패로 스트림을 끊지 않는다. 여기서 중단하면 뒤따르는
+                # file_changed 동기화와 task_completed를 통째로 잃고, 성공한
+                # 작업이 실패로 보인다.
+                err_console.print(
+                    f"[yellow][!] 이벤트 표시 실패 ({msg.get('type')}): {e}[/]"
+                )
     except Exception as e:
         err_console.print(f"\n[!] 오류: {e}")
         raise typer.Exit(1)
+
+
+def _format_finish(params: Dict[str, Any], result: Any) -> str:
+    """finish 파라미터를 마크다운 문자열로 정규화
+
+    시스템 프롬프트 계약은 message=사람이 읽을 문자열, summary=통계 객체,
+    changed_files=경로 리스트지만 모델이 타입을 뒤집어 보내기도 한다.
+    rich의 Markdown()은 문자열만 받으므로 타입 흡수는 여기서 끝낸다.
+    """
+    body = ""
+    for key in ("message", "summary"):
+        value = params.get(key)
+        if isinstance(value, str) and value.strip():
+            body = value.strip()
+            break
+
+    if not body and isinstance(result, dict):
+        value = result.get("message")
+        if isinstance(value, str) and value.strip():
+            body = value.strip()
+
+    lines = [body or str(result)]
+
+    changed = params.get("changed_files")
+    if isinstance(changed, (list, tuple)) and changed:
+        lines.append("")
+        lines.append("**변경된 파일**")
+        lines.extend(f"- `{path}`" for path in changed)
+
+    summary = params.get("summary")
+    if isinstance(summary, dict) and summary:
+        lines.append("")
+        lines.append("**요약**")
+        lines.extend(f"- {key}: {value}" for key, value in summary.items())
+
+    return "\n".join(lines)
 
 
 def _render_event(msg: dict):
@@ -722,8 +766,8 @@ def _render_event(msg: dict):
             elif tool == "read_file":
                 console.print(f"[dim]  ✓ read_file 완료[/]")
             elif tool == "finish":
-                summary = event.get("params", {}).get("summary", str(result))
-                console.print(Panel(Markdown(summary), title="[green bold]완료[/]", border_style="green"))
+                body = _format_finish(event.get("params", {}), result)
+                console.print(Panel(Markdown(body), title="[green bold]완료[/]", border_style="green"))
             else:
                 console.print(f"[green]  ✓ {tool}[/]: {str(result)[:200]}")
 
