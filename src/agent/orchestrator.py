@@ -96,6 +96,10 @@ class AgentOrchestrator:
         # 소프트 검증용 상태 추적 — finish 자체 보고를 실제 증거와 대조하기 위함.
         # 차단하지는 않고 기록만 한다 (run_tests 인프라 자체가 아직 불안정하기 때문).
         run_tests_last_success: Optional[bool] = None
+        # 마지막 run_tests의 outcome("passed"/"failed"/"no_tests"/"error").
+        # success 불리언만으로는 "테스트가 돌아서 실패한 것"과 "테스트가 아예
+        # 없어서 검증을 못 한 것"이 구분되지 않아 따로 남긴다.
+        run_tests_last_outcome: Optional[str] = None
         action_failure_count = 0
 
         try:
@@ -206,7 +210,14 @@ class AgentOrchestrator:
                         consecutive_failures = 0
 
                         if tool_name == "run_tests" and isinstance(result, dict):
-                            run_tests_last_success = bool(result.get("success"))
+                            run_tests_last_outcome = result.get("outcome")
+                            if run_tests_last_outcome == "no_tests":
+                                # 테스트가 아예 없었으면 통과도 실패도 아니다.
+                                # False로 두면 "테스트가 돌아서 실패했다"와 구분이
+                                # 안 되므로 증거 없음(None)으로 남긴다.
+                                run_tests_last_success = None
+                            else:
+                                run_tests_last_success = bool(result.get("success"))
 
                         yield {
                             "type": "action_success",
@@ -226,12 +237,20 @@ class AgentOrchestrator:
                             verification: Dict[str, Any] = {
                                 "claimed_success": claimed_success,
                                 "run_tests_last_success": run_tests_last_success,
+                                "run_tests_last_outcome": run_tests_last_outcome,
                                 "action_failure_count": action_failure_count,
                                 "suspicious": bool(
                                     claimed_success and (
                                         run_tests_last_success is False
                                         or action_failure_count > 0
                                     )
+                                ),
+                                # 테스트가 없어 아무 검증도 못 한 채 성공을 주장한
+                                # 경우. suspicious(= 반증이 있음)와는 구분되는,
+                                # "근거 없음" 신호다.
+                                "unverified": bool(
+                                    claimed_success
+                                    and run_tests_last_success is None
                                 ),
                             }
 
