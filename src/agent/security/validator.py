@@ -20,6 +20,21 @@ class SecurityError(Exception):
     pass
 
 
+class PathPolicyError(SecurityError):
+    """워크스페이스 경계 밖이거나 허용 디렉토리에 없는 경로.
+
+    같은 '거부'라도 성격이 다르다. `.env` 읽기나 `rm -rf` 실행은 의도를 의심해야
+    하지만, 이 오류는 대부분 모델이 경로를 잘못 지어낸 것이다(예: 프롬프트에 있던
+    `/workspace/...` 접두사를 그대로 베낌). 그래서 오케스트레이터는 이것만 복구
+    가능한 오류로 취급해 에러 메시지를 되먹이고 재시도시킨다.
+
+    접근이 허용되는 게 아니라 태스크를 즉사시키지 않을 뿐이며, 연속 실패가
+    max_failures에 도달하면 그때 중단된다. SecurityError를 상속하므로 이 예외를
+    구분하지 않는 호출자는 기존과 동일하게 동작한다.
+    """
+    pass
+
+
 class SecurityValidator:
     """
     에이전트 액션 보안 검증기
@@ -188,8 +203,11 @@ class SecurityValidator:
         try:
             relative_path = target.relative_to(workspace)
         except ValueError:
-            raise SecurityError(
-                f"Path traversal detected: '{path}' is outside workspace"
+            raise PathPolicyError(
+                f"Path traversal detected: '{path}' is outside workspace. "
+                f"Paths must be relative to the workspace root — drop the "
+                f"leading '/' or '/workspace' prefix and retry with "
+                f"'{self._suggest_path(path)}'."
             )
 
         # 2. 차단 경로 체크
@@ -229,12 +247,39 @@ class SecurityValidator:
                 is_allowed = True
 
             if not is_allowed:
-                raise SecurityError(
+                raise PathPolicyError(
                     f"Path not in allowed directories "
-                    f"({', '.join(self.ALLOWED_PATHS)}): {path}"
+                    f"({', '.join(self.ALLOWED_PATHS)}): {path}. "
+                    f"Retry with a path under one of them, e.g. "
+                    f"'{self._suggest_path(path)}'."
                 )
 
         logger.debug(f"File path validation passed: {path}")
+
+    def _suggest_path(self, path: str) -> str:
+        """거부된 경로를 보고 재시도용 상대 경로를 만든다.
+
+        힌트는 항상 모델이 방금 보낸 경로에서 파생한다 — 고정된 예시 파일명을 넣으면
+        모델이 그걸 그대로 베껴서 엉뚱한 파일을 만드는(프롬프트 경로 복사) 실패가
+        재현되기 때문이다.
+        """
+        parts = [p for p in Path(path).parts if p not in ("/", "\\")]
+
+        # 허용 디렉토리 이름이 경로 안에 이미 있으면 거기서부터 잘라낸다.
+        # (/workspace/src/calc.py → src/calc.py)
+        for i, part in enumerate(parts):
+            if part in self.ALLOWED_PATHS:
+                return "/".join(parts[i:])
+
+        name = Path(path).name
+        if not name:
+            return self.ALLOWED_PATHS[0] if self.ALLOWED_PATHS else "."
+
+        # strict 모드에서는 루트에 두는 것도 거부되므로 허용 디렉토리를 붙여 준다.
+        if self.strict_mode and self.ALLOWED_PATHS:
+            return f"{self.ALLOWED_PATHS[0]}/{name}"
+
+        return name
 
     def validate_command(self, command: str) -> None:
         """

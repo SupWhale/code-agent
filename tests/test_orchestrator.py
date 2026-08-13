@@ -254,3 +254,92 @@ async def test_llm_tokens_are_forwarded_as_events(tmp_path):
     ]
     assert all(e["iteration"] == 1 for e in token_events)
     assert any(e["type"] == "task_completed" for e in events)
+
+
+@pytest.mark.asyncio
+async def test_workspace_escape_is_recoverable_and_fed_back(tmp_path):
+    """모델이 /workspace 접두사를 붙여도 태스크가 죽지 않고 고쳐 쓸 수 있어야 한다.
+
+    실제 사고 재현: 프롬프트에 하드코딩돼 있던 `/workspace/src/**` 예시를 모델이
+    그대로 베껴서 첫 create_file이 거부됐는데, 보안 오류가 무조건 즉시 중단이라
+    재시도 한 번 없이 태스크 전체가 실패했다."""
+    (tmp_path / "src").mkdir()
+    llm = _ScriptedLLMClient([
+        AgentResponse(
+            reasoning="create the calculator",
+            actions=[{
+                "tool": "create_file",
+                # 워크스페이스 밖 — 거부되지만 태스크를 죽이면 안 된다
+                "params": {"path": "/workspace/src/calculator.py", "content": "x = 1\n"},
+            }],
+            raw_response="...",
+        ),
+        AgentResponse(
+            reasoning="retry with a relative path",
+            actions=[{
+                "tool": "create_file",
+                "params": {"path": "src/calculator.py", "content": "x = 1\n"},
+            }],
+            raw_response="...",
+        ),
+        AgentResponse(
+            reasoning="done",
+            actions=[{
+                "tool": "finish",
+                "params": {
+                    "success": True,
+                    "message": "created calculator",
+                    "changed_files": ["src/calculator.py"],
+                },
+            }],
+            raw_response="...",
+        ),
+    ])
+    orchestrator = _make_orchestrator(tmp_path, llm)
+
+    events = await _run(orchestrator, tmp_path)
+
+    # 거부는 됐지만 복구 가능한 실패로 보고된다
+    failed = [e for e in events if e["type"] == "action_failed"]
+    assert len(failed) == 1
+    assert failed[0]["recoverable"] is True
+    assert not any(e["type"] == "security_violation" for e in events)
+
+    # 재시도가 실제로 파일을 만들고 태스크가 완료된다
+    assert (tmp_path / "src" / "calculator.py").read_text() == "x = 1\n"
+    completed = [e for e in events if e["type"] == "task_completed"][0]
+    assert completed["success"] is True
+    assert completed["verification"]["actual_changed_files"] == ["src/calculator.py"]
+
+    # 고쳐 쓸 수 있게 오류 메시지와 쓸 만한 경로가 모델에게 되먹여졌는지
+    second_call_history = llm.received_histories[1]
+    combined = " ".join(m["content"] for m in second_call_history)
+    assert "outside workspace" in combined
+    assert "src/calculator.py" in combined
+
+
+@pytest.mark.asyncio
+async def test_blocked_path_still_aborts_immediately(tmp_path):
+    """.env 같은 차단 경로는 강등 대상이 아니다 — 재시도 없이 즉시 중단."""
+    (tmp_path / "src").mkdir()
+    llm = _ScriptedLLMClient([
+        AgentResponse(
+            reasoning="read secrets",
+            actions=[{"tool": "read_file", "params": {"path": "src/.env"}}],
+            raw_response="...",
+        ),
+        AgentResponse(
+            reasoning="이 응답까지 오면 중단되지 않은 것이다",
+            actions=[{"tool": "finish", "params": {"success": True, "message": "done"}}],
+            raw_response="...",
+        ),
+    ])
+    orchestrator = _make_orchestrator(tmp_path, llm)
+
+    events = await _run(orchestrator, tmp_path)
+
+    assert any(e["type"] == "security_violation" for e in events)
+    assert any(e["type"] == "task_failed" for e in events)
+    assert not any(e["type"] == "task_completed" for e in events)
+    # LLM에게 두 번째 기회가 가지 않았는지 (스크립트가 소비되지 않고 남아 있어야 한다)
+    assert len(llm.received_histories) == 1

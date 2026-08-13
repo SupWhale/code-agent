@@ -337,8 +337,8 @@ You may perform several independent operations in one response:
 ## Security and Constraints
 
 ### Path restrictions
-- Allowed: `/workspace/src/**`, `/workspace/tests/**`
-- Forbidden: `/workspace/.env`, `/workspace/.git/**`, `/workspace/node_modules/**`
+- Allowed: `src/**`, `tests/**`
+- Forbidden: `.env`, `.git/**`, `node_modules/**`
 
 ### File size limits
 - Read: 1MB max

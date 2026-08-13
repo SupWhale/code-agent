@@ -12,7 +12,7 @@ from .llm.base import AgentResponse, LLMClient
 from .executor import ToolExecutor
 from .memory.conversation import ConversationMemory
 from .memory.task_state import TaskState, TaskStatus
-from .security.validator import SecurityValidator, SecurityError
+from .security.validator import SecurityValidator, SecurityError, PathPolicyError
 
 logger = logging.getLogger(__name__)
 
@@ -315,6 +315,41 @@ class AgentOrchestrator:
                             }
 
                             return
+
+                    except PathPolicyError as e:
+                        # 경로 정책 위반은 중단하지 않고 되먹인다. 워크스페이스 밖
+                        # 경로는 공격이 아니라 모델이 경로를 잘못 지어낸 경우가
+                        # 대부분인데(프롬프트의 /workspace 접두사 복사 등), 즉시
+                        # 중단하면 접두사 오타 하나에 태스크 전체가 죽는다.
+                        # 접근은 이미 차단됐고, 아래 max_failures 상한이 남아 있어
+                        # 계속 헛짚으면 결국 중단된다. (.env 같은 차단 경로와 위험
+                        # 명령은 PathPolicyError가 아니므로 아래에서 즉시 중단된다.)
+                        logger.warning(
+                            f"[Task {task_id}] Path policy violation: {e}"
+                        )
+
+                        action_results.append({
+                            "tool": tool_name,
+                            "success": False,
+                            "error": str(e),
+                            "error_type": "PathPolicyError"
+                        })
+
+                        consecutive_failures += 1
+                        action_failure_count += 1
+
+                        yield {
+                            "type": "action_failed",
+                            "tool": tool_name,
+                            "error": str(e),
+                            "recoverable": True
+                        }
+
+                        if consecutive_failures >= self.max_failures:
+                            raise RuntimeError(
+                                f"Too many consecutive failures "
+                                f"({consecutive_failures}). Aborting."
+                            )
 
                     except SecurityError as e:
                         # 보안 위반 - 즉시 중단

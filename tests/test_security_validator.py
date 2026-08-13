@@ -2,7 +2,11 @@
 
 import pytest
 
-from src.agent.security.validator import SecurityValidator, SecurityError
+from src.agent.security.validator import (
+    SecurityValidator,
+    SecurityError,
+    PathPolicyError,
+)
 
 
 @pytest.fixture
@@ -55,6 +59,40 @@ class TestFilePathValidation:
     def test_strict_mode_blocks_unlisted_directory(self, validator):
         with pytest.raises(SecurityError, match="not in allowed"):
             validator.validate_file_path("docs/readme.md")
+
+
+class TestPathPolicyErrorGrading:
+    """경로 정책 위반은 PathPolicyError로 구분된다 — 오케스트레이터가 이것만
+    재시도 가능한 오류로 강등하고, 진짜 보안 위반은 그대로 즉시 중단한다."""
+
+    def test_workspace_escape_is_path_policy_error(self, validator):
+        # 실제 사고: 모델이 프롬프트에 있던 /workspace 접두사를 그대로 베꼈다
+        with pytest.raises(PathPolicyError):
+            validator.validate_file_path("/workspace/src/calculator.py")
+
+    def test_unlisted_directory_is_path_policy_error(self, validator):
+        with pytest.raises(PathPolicyError):
+            validator.validate_file_path("calculator.py")
+
+    def test_error_message_suggests_a_usable_relative_path(self, validator):
+        # 힌트는 모델이 보낸 경로에서 파생돼야 한다(고정 예시 파일명을 주면
+        # 그걸 그대로 베끼는 실패가 재현된다)
+        with pytest.raises(PathPolicyError, match="src/calculator.py"):
+            validator.validate_file_path("/workspace/src/calculator.py")
+
+    def test_suggested_path_actually_passes_validation(self, validator):
+        validator.validate_file_path(validator._suggest_path("calculator.py"))
+
+    def test_blocked_path_stays_fatal(self, validator):
+        # .env 접근은 경로 오타가 아니라 의도를 의심해야 하는 위반이다
+        with pytest.raises(SecurityError) as exc_info:
+            validator.validate_file_path("src/.env")
+        assert not isinstance(exc_info.value, PathPolicyError)
+
+    def test_dangerous_command_stays_fatal(self, validator):
+        with pytest.raises(SecurityError) as exc_info:
+            validator.validate_command("rm -rf /")
+        assert not isinstance(exc_info.value, PathPolicyError)
 
     def test_empty_path_blocked(self, validator):
         with pytest.raises(SecurityError):

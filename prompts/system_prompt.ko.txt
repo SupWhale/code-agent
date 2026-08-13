@@ -329,8 +329,8 @@
 ## 보안 및 제약사항
 
 ### 경로 제한
-- ✅ 허용: `/workspace/src/**`, `/workspace/tests/**`
-- ❌ 금지: `/workspace/.env`, `/workspace/.git/**`, `/workspace/node_modules/**`
+- ✅ 허용: `src/**`, `tests/**`
+- ❌ 금지: `.env`, `.git/**`, `node_modules/**`
 
 ### 파일 크기 제한
 - 읽기: 최대 1MB
